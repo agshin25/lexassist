@@ -1,0 +1,94 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  /* ChatGPT-style backgrounds */
+  --color-navy-950: #171717;
+  --color-navy-900: #212121;
+  --color-navy-800: #2f2f2f;
+  --color-navy-700: #3a3a3a;
+  --color-navy-600: #4a4a4a;
+
+  /* Primary accent — clean white-on-dark */
+  --color-gold-500: #10a37f;
+  --color-gold-400: #1abd94;
+  --color-gold-300: #3dd9ab;
+
+  /* Secondary accent */
+  --color-teal-500: #10a37f;
+  --color-teal-400: #1abd94;
+  --color-teal-300: #3dd9ab;
+
+  --color-surface-50: #f9f9f9;
+  --color-surface-100: #ececec;
+  --color-surface-200: #d9d9d9;
+  --color-surface-700: #2f2f2f;
+  --color-surface-800: #212121;
+  --color-surface-900: #171717;
+
+  --shadow-glass: 0 4px 24px rgba(0, 0, 0, 0.25);
+  --shadow-glow-gold: 0 0 16px rgba(16, 163, 127, 0.12);
+  --shadow-glow-teal: 0 0 16px rgba(16, 163, 127, 0.12);
+
+  --animate-fade-in: fade-in 0.3s ease-out;
+  --animate-slide-in: slide-in 0.25s ease-out;
+  --animate-pulse-dot: pulse-dot 1.4s ease-in-out infinite;
+
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes slide-in {
+    from { opacity: 0; transform: translateX(-8px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+  @keyframes pulse-dot {
+    0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+    40% { opacity: 1; transform: scale(1); }
+  }
+}
+
+:root {
+  --app-bg: var(--color-navy-950);
+  --app-surface: var(--color-navy-900);
+  --app-surface-hover: var(--color-navy-800);
+  --app-border: rgba(255, 255, 255, 0.08);
+  --app-text: #ececec;
+  --app-text-muted: #9a9a9a;
+  --app-accent: var(--color-gold-500);
+  --app-accent-secondary: var(--color-teal-500);
+  --glass-bg: rgba(33, 33, 33, 0.8);
+  --glass-border: rgba(255, 255, 255, 0.06);
+}
+
+html:not(.dark) {
+  --app-bg: #ffffff;
+  --app-surface: #f9f9f9;
+  --app-surface-hover: #ececec;
+  --app-border: rgba(0, 0, 0, 0.08);
+  --app-text: #0d0d0d;
+  --app-text-muted: #6e6e6e;
+  --app-accent: var(--color-gold-500);
+  --app-accent-secondary: var(--color-teal-500);
+  --glass-bg: rgba(249, 249, 249, 0.8);
+  --glass-border: rgba(0, 0, 0, 0.06);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--app-border) transparent;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background-color: var(--app-bg);
+  color: var(--app-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100vh;
+}

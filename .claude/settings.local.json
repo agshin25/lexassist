@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tree -L 3 -I 'venv|node_modules|*.egg-info|__pycache__|.pytest_cache|dist|build' \"C:/Users/user/Documents/Projects/lex-assist\" 2>/dev/null || find \"C:/Users/user/Documents/Projects/lex-assist\" -maxdepth 3 -not -path '*/venv/*' -not -path '*/node_modules/*' -not -path '*/__pycache__/*' -type f -o -type d 2>/dev/null | head -100)",
+      "WebSearch",
+      "Bash(cd /c/Users/user/Documents/Projects/lex-assist/frontend && npm install tailwindcss @tailwindcss/vite react-router-dom lucide-react)",
+      "Bash(cd /c/Users/user/Documents/Projects/lex-assist/frontend && npx vite build 2>&1 | head -50)",
+      "Bash(cd /c/Users/user/Documents/Projects/lex-assist/frontend && npx vite build 2>&1 | tail -10)"
+    ]
+  }
+}
