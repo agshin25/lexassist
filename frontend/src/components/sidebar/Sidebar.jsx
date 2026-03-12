@@ -1,19 +1,32 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { History, Database, Settings, Plus, PanelLeftClose } from 'lucide-react';
 import Logo from './Logo';
 import NavLink from './NavLink';
+import ChatItem from './ChatItem';
 import AdminProfile from './AdminProfile';
 import { useChat } from '../../hooks/useChat';
 
 const NAV_ITEMS = [
   { to: '/history', icon: History, label: 'Conversation History', disabled: false },
-  { to: '/training', icon: Database, label: 'Training Data', disabled: true },
+  { to: '/training', icon: Database, label: 'Training Data', disabled: false },
   { to: '/settings', icon: Settings, label: 'Settings', disabled: true },
 ];
 
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
-  const { conversations, activeConversationId, setActiveConversationId, createNewChat } = useChat();
+  const navigate = useNavigate();
+  const { conversations, activeConversationId, setActiveConversationId, createNewChat, renameChat, deleteChat } = useChat();
+
+  const handleChatClick = (convId) => {
+    setActiveConversationId(convId);
+    navigate('/chat');
+  };
+
+  const handleNewChat = async () => {
+    await createNewChat();
+    navigate('/chat');
+  };
 
   return (
     <aside
@@ -35,7 +48,7 @@ export default function Sidebar() {
 
       <div className="space-y-0.5 px-3 py-2">
         <button
-          onClick={createNewChat}
+          onClick={handleNewChat}
           className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-[var(--app-text-muted)] transition-colors hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)]"
         >
           <Plus size={20} className="shrink-0" />
@@ -51,23 +64,17 @@ export default function Sidebar() {
           <p className="px-5 py-2 text-[11px] font-medium text-[var(--app-text-muted)]">
             Your chats
           </p>
-          <div className="flex-1 overflow-y-auto px-3">
-            {conversations.map((conv) => {
-              const isActive = conv.id === activeConversationId;
-              return (
-                <button
-                  key={conv.id}
-                  onClick={() => setActiveConversationId(conv.id)}
-                  className={`w-full truncate rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-                    isActive
-                      ? 'bg-[var(--app-surface-hover)] text-[var(--app-text)]'
-                      : 'text-[var(--app-text-muted)] hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)]'
-                  }`}
-                >
-                  {conv.title}
-                </button>
-              );
-            })}
+          <div className="flex-1 overflow-y-auto px-3 space-y-1">
+            {conversations.map((conv) => (
+              <ChatItem
+                key={conv.id}
+                conv={conv}
+                isActive={conv.id === activeConversationId}
+                onClick={() => handleChatClick(conv.id)}
+                onRename={renameChat}
+                onDelete={deleteChat}
+              />
+            ))}
           </div>
         </div>
       )}

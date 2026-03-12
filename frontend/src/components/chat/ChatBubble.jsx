@@ -1,4 +1,5 @@
 import { Bot } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 import SourceTag from './SourceTag';
 
 function formatTime(timestamp) {
@@ -28,7 +29,9 @@ export default function ChatBubble({ message }) {
       </div>
       <div className="max-w-[80%]">
         <div className="rounded-2xl rounded-bl-sm bg-[var(--app-surface)] border border-[var(--glass-border)] px-4 py-3">
-          <p className="text-sm leading-relaxed text-[var(--app-text)]">{message.content}</p>
+          <div className="prose prose-sm prose-invert max-w-none text-sm leading-relaxed text-[var(--app-text)]">
+            <ReactMarkdown>{message.content}</ReactMarkdown>
+          </div>
           <p className="mt-1.5 text-[10px] text-[var(--app-text-muted)]">
             {formatTime(message.timestamp)}
           </p>

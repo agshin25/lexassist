@@ -1,19 +1,29 @@
 from sentence_transformers import SentenceTransformer
 import chromadb
-import fitz 
-import ollama
+import fitz
 from app.config import settings
+from app.prompts import legal_prompt, NO_DATA_RESPONSE, CHAT_SYSTEM_PROMPT, LEGAL_SYSTEM_PROMPT
 import os
 from ollama import Client
+
+RELEVANCE_THRESHOLD = 0.44
 
 embedding_model = SentenceTransformer('intfloat/multilingual-e5-large')
 chroma_client = chromadb.PersistentClient(path=settings.chroma_path)
 ollama_client = Client(host=settings.ollama_url)
 
+OLLAMA_OPTIONS = {
+    "temperature": 0.3,
+    "top_p": 0.9,
+    "num_ctx": 4096,
+}
+
+
 def get_or_create_collection():
     return chroma_client.get_or_create_collection("legal_docs")
 
-def extract_text_from_pdf(pdf_path:str) -> str:
+
+def extract_text_from_pdf(pdf_path: str) -> str:
     doc = fitz.open(pdf_path)
     text = ""
     for page in doc:
@@ -21,30 +31,85 @@ def extract_text_from_pdf(pdf_path:str) -> str:
     doc.close()
     return text
 
+
 def chunk_text(text: str) -> list[str]:
-    chunks = []
+    # First try article-based splitting (for legal documents)
+    article_chunks = []
     current_chunk = ""
     for line in text.split("\n"):
         if line.strip().startswith("Maddə") and current_chunk:
-            chunks.append(current_chunk.strip())
+            article_chunks.append(current_chunk.strip())
             current_chunk = line + "\n"
         else:
-            current_chunk += line + "\n"  
+            current_chunk += line + "\n"
     if current_chunk.strip():
-        chunks.append(current_chunk.strip())
-    chunks = [c for c in chunks if len(c) > 50]
+        article_chunks.append(current_chunk.strip())
+
+    # If article-based splitting produced good chunks, use them
+    article_chunks = [c for c in article_chunks if len(c) > 50]
+    if len(article_chunks) > 1:
+        # Split any very large chunks (>2000 chars) into smaller pieces with overlap
+        final_chunks = []
+        for chunk in article_chunks:
+            if len(chunk) > 2000:
+                words = chunk.split()
+                sub_chunk = []
+                sub_len = 0
+                for word in words:
+                    sub_chunk.append(word)
+                    sub_len += len(word) + 1
+                    if sub_len > 1000:
+                        final_chunks.append(" ".join(sub_chunk))
+                        # Keep last 20% of words as overlap
+                        overlap = sub_chunk[-(len(sub_chunk) // 5):]
+                        sub_chunk = overlap
+                        sub_len = sum(len(w) + 1 for w in sub_chunk)
+                if sub_chunk:
+                    final_chunks.append(" ".join(sub_chunk))
+            else:
+                final_chunks.append(chunk)
+        return final_chunks
+
+    # Fallback: split by paragraphs with overlap for non-legal documents
+    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip() and len(p.strip()) > 30]
+    if paragraphs:
+        chunks = []
+        for i in range(0, len(paragraphs), 2):
+            chunk = "\n\n".join(paragraphs[i:i + 3])  # 3 paragraphs per chunk, 1 overlap
+            if len(chunk) > 50:
+                chunks.append(chunk)
+        return chunks if chunks else [text[:2000]]
+
+    # Last resort: fixed-size chunking
+    chunks = []
+    for i in range(0, len(text), 800):
+        chunk = text[i:i + 1000]
+        if len(chunk) > 50:
+            chunks.append(chunk)
     return chunks
+
+
+def delete_document(filename: str):
+    """Delete all chunks for a document from ChromaDB."""
+    collection = get_or_create_collection()
+    all_data = collection.get()
+    ids_to_delete = [
+        id for id, meta in zip(all_data['ids'], all_data['metadatas'])
+        if meta.get('source') == filename
+    ]
+    if ids_to_delete:
+        collection.delete(ids=ids_to_delete)
+    return len(ids_to_delete)
+
 
 def ingest_pdf(pdf_path: str) -> int:
     text = extract_text_from_pdf(pdf_path)
-
     chunks = chunk_text(text)
 
     if not chunks:
         return 0
 
     embeddings = embedding_model.encode(chunks)
-
     collection = get_or_create_collection()
     filename = os.path.basename(pdf_path)
 
@@ -60,57 +125,67 @@ def ingest_pdf(pdf_path: str) -> int:
 
     return len(chunks)
 
-def search(query: str, n_results: int = 3) -> list[dict]:
+
+def search(query: str, n_results: int = 5) -> dict:
     collection = get_or_create_collection()
 
     if collection.count() == 0:
-        return []
+        return {"matches": [], "distances": []}
 
     query_embedding = embedding_model.encode([query])
-
     results = collection.query(
         query_embeddings=query_embedding.tolist(),
-        n_results=n_results
+        n_results=n_results,
+        include=["documents", "metadatas", "distances"]
     )
 
     matches = []
+    distances = results['distances'][0] if results['distances'] else []
+
     for i in range(len(results['documents'][0])):
         matches.append({
             "text": results['documents'][0][i],
             "source": results['metadatas'][0][i]['source'],
         })
 
-    return matches
+    return {"matches": matches, "distances": distances}
 
-def ask(question: str) -> dict:
-    matches = search(question)
+
+def ask(question: str, history: list[dict] | None = None) -> dict:
+    result = search(question)
+    matches = result["matches"]
+    distances = result["distances"]
+
     if not matches:
-        return {
-            "answer": "Verilənlər bazasında məlumat tapılmadı. Zəhmət olmasa əvvəlcə PDF sənədləri yükləyin.",
-            "sources": []
-        }
+        return {"answer": NO_DATA_RESPONSE, "sources": []}
+
+    best_distance = min(distances) if distances else 999
+
+    # No relevant legal docs found — use chat prompt (allows greetings etc.)
+    if best_distance > RELEVANCE_THRESHOLD:
+        messages = [{'role': 'system', 'content': CHAT_SYSTEM_PROMPT}]
+        if history:
+            for msg in history[-6:]:
+                messages.append({'role': msg['role'], 'content': msg['content']})
+        messages.append({'role': 'user', 'content': question})
+        response = ollama_client.chat(
+            model=settings.ollama_model,
+            messages=messages,
+            options=OLLAMA_OPTIONS,
+        )
+        return {"answer": response['message']['content'], "sources": []}
+
+    # Relevant legal docs found — use strict legal prompt (NO greetings)
     context = "\n\n".join([m["text"] for m in matches])
-    prompt = f"""Sən Azərbaycan hüquq üzrə köməkçisən.
-    Aşağıdakı qanun mətnlərinə əsasən suala ətraflı cavab ver.
-
-    QAYDALAR:
-    1. YALNIZ aşağıdakı kontekstdəki məlumatdan istifadə et
-    2. Maddə nömrələrini mütləq qeyd et
-    3. Qanun mətnini olduğu kimi sitat gətir
-    4. Cavabı strukturlu şəkildə ver - hər maddəni ayrıca izah et
-    5. Kontekstdə cavab yoxdursa "Bu barədə məlumat tapılmadı" yaz
-    6. Cavab ətraflı və tam olmalıdır - bütün aidiyyatlı maddələri qeyd et
-
-    Kontekst:
-    {context}
-
-    Sual: {question}
-
-    Ətraflı cavab (bütün aidiyyatlı maddələr ilə):"""
-
+    messages = [{'role': 'system', 'content': LEGAL_SYSTEM_PROMPT}]
+    if history:
+        for msg in history[-6:]:
+            messages.append({'role': msg['role'], 'content': msg['content']})
+    messages.append({'role': 'user', 'content': legal_prompt(question, context)})
     response = ollama_client.chat(
         model=settings.ollama_model,
-        messages=[{'role': 'user', 'content': prompt}]
+        messages=messages,
+        options=OLLAMA_OPTIONS,
     )
     sources = list(set([m["source"] for m in matches]))
     return {

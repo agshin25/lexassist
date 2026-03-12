@@ -1,0 +1,23 @@
+# Backend
+backend/data/
+backend/venv/
+backend/app/__pycache__/
+backend/app/routers/__pycache__/
+backend/.env
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
