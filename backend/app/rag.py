@@ -5,17 +5,11 @@ from app.config import settings
 from app.prompts import legal_prompt, NO_DATA_RESPONSE, CHAT_SYSTEM_PROMPT, LEGAL_SYSTEM_PROMPT
 import os
 import json
-from ollama import Client
+from openai import OpenAI
 
-embedding_model = SentenceTransformer('intfloat/multilingual-e5-large',device='cpu')
+embedding_model = SentenceTransformer('intfloat/multilingual-e5-large', device='cpu')
 chroma_client = chromadb.PersistentClient(path=settings.chroma_path)
-ollama_client = Client(host=settings.ollama_url)
-
-OLLAMA_OPTIONS = {
-    "temperature": 0.3,
-    "top_p": 0.9,
-    "num_ctx": 4096,
-}
+openai_client = OpenAI(api_key=settings.openai_api_key)
 
 
 def get_or_create_collection():
@@ -69,7 +63,7 @@ def chunk_text(text: str) -> list[str]:
     if paragraphs:
         chunks = []
         for i in range(0, len(paragraphs), 2):
-            chunk = "\n\n".join(paragraphs[i:i + 3])  
+            chunk = "\n\n".join(paragraphs[i:i + 3])
             if len(chunk) > 50:
                 chunks.append(chunk)
         return chunks if chunks else [text[:2000]]
@@ -83,7 +77,6 @@ def chunk_text(text: str) -> list[str]:
 
 
 def delete_document(filename: str):
-    """Delete all chunks for a document from ChromaDB."""
     collection = get_or_create_collection()
     all_data = collection.get()
     ids_to_delete = [
@@ -119,7 +112,7 @@ def ingest_pdf(pdf_path: str) -> int:
     return len(chunks)
 
 
-def search(query: str, n_results: int = 3) -> dict:
+def search(query: str, n_results: int = 5) -> dict:
     collection = get_or_create_collection()
 
     if collection.count() == 0:
@@ -144,18 +137,29 @@ def search(query: str, n_results: int = 3) -> dict:
     return {"matches": matches, "distances": distances}
 
 
+def chat_completion(messages: list[dict], temperature: float = 0.3, response_format=None) -> str:
+    kwargs = {
+        "model": settings.openai_model,
+        "messages": messages,
+        "temperature": temperature,
+    }
+    if response_format:
+        kwargs["response_format"] = response_format
+    response = openai_client.chat.completions.create(**kwargs)
+    return response.choices[0].message.content
+
+
 def classify_intent(question: str) -> bool:
-    response = ollama_client.chat(
-        model=settings.ollama_model,
+    content = chat_completion(
         messages=[{
             'role': 'user',
             'content': f'Is this message a legal question? Reply ONLY with JSON: {{"is_legal": true}} or {{"is_legal": false}}\n\nMessage: "{question}"'
         }],
-        format="json",
-        options={"temperature": 0, "num_ctx": 256},
+        temperature=0,
+        response_format={"type": "json_object"},
     )
     try:
-        result = json.loads(response['message']['content'])
+        result = json.loads(content)
         return result.get("is_legal", False)
     except (json.JSONDecodeError, KeyError):
         return False
@@ -170,12 +174,8 @@ def ask(question: str, history: list[dict] | None = None) -> dict:
             for msg in history[-6:]:
                 messages.append({'role': msg['role'], 'content': msg['content']})
         messages.append({'role': 'user', 'content': question})
-        response = ollama_client.chat(
-            model=settings.ollama_model,
-            messages=messages,
-            options=OLLAMA_OPTIONS,
-        )
-        return {"answer": response['message']['content'], "sources": []}
+        answer = chat_completion(messages)
+        return {"answer": answer, "sources": []}
 
     result = search(question)
     matches = result["matches"]
@@ -189,13 +189,9 @@ def ask(question: str, history: list[dict] | None = None) -> dict:
         for msg in history[-6:]:
             messages.append({'role': msg['role'], 'content': msg['content']})
     messages.append({'role': 'user', 'content': legal_prompt(question, context)})
-    response = ollama_client.chat(
-        model=settings.ollama_model,
-        messages=messages,
-        options=OLLAMA_OPTIONS,
-    )
+    answer = chat_completion(messages)
     sources = list(set([m["source"] for m in matches]))
     return {
-        "answer": response['message']['content'],
+        "answer": answer,
         "sources": sources
     }

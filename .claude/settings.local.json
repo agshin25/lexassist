@@ -19,7 +19,9 @@
       "Bash(source venv/Scripts/activate && PYTHONIOENCODING=utf-8 python -c \"\nfrom app.rag import get_all_topics, get_or_create_collection\ncol = get_or_create_collection\\(\\)\nprint\\('Total chunks:', col.count\\(\\)\\)\nprint\\('Topics:', get_all_topics\\(\\)\\)\ndata = col.get\\(\\)\nfor m in data['metadatas'][:5]:\n    print\\(m\\)\n\")",
       "Bash(curl -s http://209.209.42.142:11434/api/tags 2>/dev/null | python -m json.tool 2>/dev/null | head -50)",
       "Bash(source venv/Scripts/activate && PYTHONIOENCODING=utf-8 python -c \"\nfrom app.rag import search\nresult = search\\('Bosanma prosesi nece heyata kecirilir?'\\)\nprint\\('Distances:', result['distances']\\)\nprint\\('Num matches:', len\\(result['matches']\\)\\)\nif result['matches']:\n    print\\('First match preview:', result['matches'][0]['text'][:200]\\)\n\")",
-      "Bash(cd /c/Users/user/Documents/Projects/lex-assist/frontend && npm install react-markdown 2>&1 | tail -3)"
+      "Bash(cd /c/Users/user/Documents/Projects/lex-assist/frontend && npm install react-markdown 2>&1 | tail -3)",
+      "Bash(cd C:/Users/user/Documents/Projects/lex-assist/backend && pip install openai 2>&1 | tail -3)",
+      "Bash(cd C:/Users/user/Documents/Projects/lex-assist/backend && pip freeze | grep -i openai)"
     ]
   }
 }
