@@ -7,7 +7,7 @@ from app.models import Base
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="LexAssist API", version="1.0.0")
+app = FastAPI(title="LexAssist API", version="1.0.0", openapi_version="3.0.3")
 
 app.add_middleware(
     CORSMiddleware,

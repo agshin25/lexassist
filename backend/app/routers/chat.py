@@ -110,6 +110,8 @@ def list_documents():
 
     chunk_counts = {}
     for meta in all_data['metadatas']:
+        if meta is None:
+            continue
         src = meta.get('source', '')
         chunk_counts[src] = chunk_counts.get(src, 0) + 1
 
