@@ -118,7 +118,7 @@ def ingest_pdf(pdf_path: str) -> int:
     return len(chunks)
 
 
-def search(query: str, n_results: int = 5) -> dict:
+def search(query: str, n_results: int = 10) -> dict:
     collection = get_or_create_collection()
 
     if collection.count() == 0:

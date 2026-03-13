@@ -57,7 +57,9 @@ FORMAT:
 - Markdown formatında yaz
 - Yalnız kontekstdəki maddə nömrələrini qeyd et
 - Mühüm terminləri **bold** et
-- Kontekstdən birbaşa sitat gətir"""
+- Kontekstdən birbaşa sitat gətir
+- Verilən kontekstdəki BÜTÜN əlaqəli məlumatı istifadə et — qısa cavab VERMƏ, ətraflı yaz
+- Kontekstdə çoxlu əlaqəli maddə varsa, hamısını qeyd et"""
 
 # ── No relevant data in documents ──
 NO_DATA_RESPONSE = "Bu barədə yüklənmiş sənədlərdə məlumat tapılmadı. Başqa hüquqi sualınız varsa, soruşa bilərsiniz."
