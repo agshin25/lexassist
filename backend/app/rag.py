@@ -33,7 +33,6 @@ def extract_text_from_pdf(pdf_path: str) -> str:
 
 
 def chunk_text(text: str) -> list[str]:
-    # First try article-based splitting (for legal documents)
     article_chunks = []
     current_chunk = ""
     for line in text.split("\n"):
@@ -45,10 +44,8 @@ def chunk_text(text: str) -> list[str]:
     if current_chunk.strip():
         article_chunks.append(current_chunk.strip())
 
-    # If article-based splitting produced good chunks, use them
     article_chunks = [c for c in article_chunks if len(c) > 50]
     if len(article_chunks) > 1:
-        # Split any very large chunks (>2000 chars) into smaller pieces with overlap
         final_chunks = []
         for chunk in article_chunks:
             if len(chunk) > 2000:
@@ -60,7 +57,6 @@ def chunk_text(text: str) -> list[str]:
                     sub_len += len(word) + 1
                     if sub_len > 1000:
                         final_chunks.append(" ".join(sub_chunk))
-                        # Keep last 20% of words as overlap
                         overlap = sub_chunk[-(len(sub_chunk) // 5):]
                         sub_chunk = overlap
                         sub_len = sum(len(w) + 1 for w in sub_chunk)
@@ -70,17 +66,15 @@ def chunk_text(text: str) -> list[str]:
                 final_chunks.append(chunk)
         return final_chunks
 
-    # Fallback: split by paragraphs with overlap for non-legal documents
     paragraphs = [p.strip() for p in text.split("\n\n") if p.strip() and len(p.strip()) > 30]
     if paragraphs:
         chunks = []
         for i in range(0, len(paragraphs), 2):
-            chunk = "\n\n".join(paragraphs[i:i + 3])  # 3 paragraphs per chunk, 1 overlap
+            chunk = "\n\n".join(paragraphs[i:i + 3])  
             if len(chunk) > 50:
                 chunks.append(chunk)
         return chunks if chunks else [text[:2000]]
 
-    # Last resort: fixed-size chunking
     chunks = []
     for i in range(0, len(text), 800):
         chunk = text[i:i + 1000]
@@ -126,7 +120,7 @@ def ingest_pdf(pdf_path: str) -> int:
     return len(chunks)
 
 
-def search(query: str, n_results: int = 5) -> dict:
+def search(query: str, n_results: int = 3) -> dict:
     collection = get_or_create_collection()
 
     if collection.count() == 0:
@@ -161,7 +155,6 @@ def ask(question: str, history: list[dict] | None = None) -> dict:
 
     best_distance = min(distances) if distances else 999
 
-    # No relevant legal docs found — use chat prompt (allows greetings etc.)
     if best_distance > RELEVANCE_THRESHOLD:
         messages = [{'role': 'system', 'content': CHAT_SYSTEM_PROMPT}]
         if history:
@@ -175,7 +168,6 @@ def ask(question: str, history: list[dict] | None = None) -> dict:
         )
         return {"answer": response['message']['content'], "sources": []}
 
-    # Relevant legal docs found — use strict legal prompt (NO greetings)
     context = "\n\n".join([m["text"] for m in matches])
     messages = [{'role': 'system', 'content': LEGAL_SYSTEM_PROMPT}]
     if history:
