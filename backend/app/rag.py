@@ -8,7 +8,7 @@ from ollama import Client
 
 RELEVANCE_THRESHOLD = 0.44
 
-embedding_model = SentenceTransformer('intfloat/multilingual-e5-large')
+embedding_model = SentenceTransformer('intfloat/multilingual-e5-large',device='cpu')
 chroma_client = chromadb.PersistentClient(path=settings.chroma_path)
 ollama_client = Client(host=settings.ollama_url)
 
