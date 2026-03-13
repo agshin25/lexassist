@@ -4,9 +4,8 @@ import fitz
 from app.config import settings
 from app.prompts import legal_prompt, NO_DATA_RESPONSE, CHAT_SYSTEM_PROMPT, LEGAL_SYSTEM_PROMPT
 import os
+import json
 from ollama import Client
-
-RELEVANCE_THRESHOLD = 0.44
 
 embedding_model = SentenceTransformer('intfloat/multilingual-e5-large',device='cpu')
 chroma_client = chromadb.PersistentClient(path=settings.chroma_path)
@@ -145,17 +144,27 @@ def search(query: str, n_results: int = 3) -> dict:
     return {"matches": matches, "distances": distances}
 
 
+def classify_intent(question: str) -> bool:
+    response = ollama_client.chat(
+        model=settings.ollama_model,
+        messages=[{
+            'role': 'user',
+            'content': f'Is this message a legal question? Reply ONLY with JSON: {{"is_legal": true}} or {{"is_legal": false}}\n\nMessage: "{question}"'
+        }],
+        format="json",
+        options={"temperature": 0, "num_ctx": 256},
+    )
+    try:
+        result = json.loads(response['message']['content'])
+        return result.get("is_legal", False)
+    except (json.JSONDecodeError, KeyError):
+        return False
+
+
 def ask(question: str, history: list[dict] | None = None) -> dict:
-    result = search(question)
-    matches = result["matches"]
-    distances = result["distances"]
+    is_legal = classify_intent(question)
 
-    if not matches:
-        return {"answer": NO_DATA_RESPONSE, "sources": []}
-
-    best_distance = min(distances) if distances else 999
-
-    if best_distance > RELEVANCE_THRESHOLD:
+    if not is_legal:
         messages = [{'role': 'system', 'content': CHAT_SYSTEM_PROMPT}]
         if history:
             for msg in history[-6:]:
@@ -167,6 +176,12 @@ def ask(question: str, history: list[dict] | None = None) -> dict:
             options=OLLAMA_OPTIONS,
         )
         return {"answer": response['message']['content'], "sources": []}
+
+    result = search(question)
+    matches = result["matches"]
+
+    if not matches:
+        return {"answer": NO_DATA_RESPONSE, "sources": []}
 
     context = "\n\n".join([m["text"] for m in matches])
     messages = [{'role': 'system', 'content': LEGAL_SYSTEM_PROMPT}]
