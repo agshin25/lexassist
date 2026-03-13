@@ -2,10 +2,16 @@ from sentence_transformers import SentenceTransformer
 import chromadb
 import fitz
 from app.config import settings
-from app.prompts import legal_prompt, NO_DATA_RESPONSE, CHAT_SYSTEM_PROMPT, LEGAL_SYSTEM_PROMPT
+from app.prompts import (
+    legal_prompt, LEGAL_SYSTEM_PROMPT, REDIRECTOR_SYSTEM_PROMPT,
+    INTENT_CLASSIFICATION_PROMPT, NO_DATA_RESPONSE,
+)
 import os
 import json
+import logging
 from openai import OpenAI
+
+logger = logging.getLogger(__name__)
 
 embedding_model = SentenceTransformer('intfloat/multilingual-e5-large', device='cpu')
 chroma_client = chromadb.PersistentClient(path=settings.chroma_path)
@@ -149,52 +155,102 @@ def chat_completion(messages: list[dict], temperature: float = 0.3, response_for
     return response.choices[0].message.content
 
 
-def classify_intent(question: str) -> bool:
+RELEVANCE_THRESHOLD = 1.2  # max L2 distance — lower = more relevant
+
+
+def classify_intent(question: str) -> str:
+    """Classify user message into: legal_question, greeting, smalltalk, out_of_scope."""
+    content = chat_completion(
+        messages=[
+            {'role': 'system', 'content': INTENT_CLASSIFICATION_PROMPT},
+            {'role': 'user', 'content': question},
+        ],
+        temperature=0,
+    )
+    intent = content.strip().lower().replace('"', '').replace("'", '')
+    valid = {'legal_question', 'greeting', 'smalltalk', 'out_of_scope'}
+    if intent not in valid:
+        intent = 'out_of_scope'
+    logger.info(f"Intent for '{question[:50]}': {intent}")
+    return intent
+
+
+def check_relevance(question: str, context: str) -> bool:
+    """Post-retrieval relevance check. Cheap LLM call — just YES or NO."""
     content = chat_completion(
         messages=[{
             'role': 'user',
-            'content': f'Is this message a legal question? Reply ONLY with JSON: {{"is_legal": true}} or {{"is_legal": false}}\n\nMessage: "{question}"'
+            'content': f'Aşağıdakı KONTEKST bu SUALA cavab vermək üçün faydalıdırmı?\n\nSUAL: {question}\n\nKONTEKST: {context[:500]}\n\nYALNIZ "YES" və ya "NO" yaz. Başqa heç nə yazma.'
         }],
         temperature=0,
-        response_format={"type": "json_object"},
     )
-    try:
-        result = json.loads(content)
-        return result.get("is_legal", False)
-    except (json.JSONDecodeError, KeyError):
-        return False
+    result = content.strip().upper()
+    logger.info(f"Relevance check for '{question[:50]}': {result}")
+    return result.startswith("YES")
 
 
-def _build_messages(question: str, history: list[dict] | None = None) -> tuple[list[dict], list[str]]:
-    """Classify intent, do RAG search if needed, return (messages, sources)."""
-    is_legal = classify_intent(question)
+def _build_redirector_messages(question: str) -> list[dict]:
+    """Build messages for the redirector (greeting/smalltalk/out_of_scope)."""
+    return [
+        {'role': 'system', 'content': REDIRECTOR_SYSTEM_PROMPT},
+        {'role': 'user', 'content': question},
+    ]
 
-    if not is_legal:
-        messages = [{'role': 'system', 'content': CHAT_SYSTEM_PROMPT}]
-        if history:
-            for msg in history[-6:]:
-                messages.append({'role': msg['role'], 'content': msg['content']})
-        messages.append({'role': 'user', 'content': question})
-        return messages, []
 
+def _build_messages(question: str, history: list[dict] | None = None):
+    """
+    Production RAG flow:
+    1. Intent classification (4 labels)
+    2. Non-legal → redirector (natural response + redirect)
+    3. Legal → RAG search → distance threshold → relevance check → answer from data
+    Returns: (intent, messages, sources)
+    """
+
+    # Step 1: Intent classification
+    intent = classify_intent(question)
+
+    # Step 2: Non-legal intents → redirector prompt (natural, no legal info)
+    if intent != 'legal_question':
+        messages = _build_redirector_messages(question)
+        return intent, messages, []
+
+    # Step 3: Legal question → RAG search
     result = search(question)
     matches = result["matches"]
+    distances = result["distances"]
 
+    # Step 4: Distance threshold
+    if matches and distances:
+        logger.info(f"RAG distances for '{question[:50]}': {distances}")
+        filtered = [
+            (m, d) for m, d in zip(matches, distances)
+            if d <= RELEVANCE_THRESHOLD
+        ]
+        logger.info(f"RAG matches: {len(matches)} total, {len(filtered)} after threshold ({RELEVANCE_THRESHOLD})")
+        matches = [m for m, d in filtered]
+
+    # No matches → static "no data" response
     if not matches:
-        return None, []
+        return intent, None, []
 
     context = "\n\n".join([m["text"] for m in matches])
+
+    # Step 5: Post-retrieval relevance check
+    if not check_relevance(question, context):
+        return intent, None, []
+
+    # Step 6: Context is relevant — answer strictly from it
     messages = [{'role': 'system', 'content': LEGAL_SYSTEM_PROMPT}]
     if history:
         for msg in history[-6:]:
             messages.append({'role': msg['role'], 'content': msg['content']})
     messages.append({'role': 'user', 'content': legal_prompt(question, context)})
     sources = list(set([m["source"] for m in matches]))
-    return messages, sources
+    return intent, messages, sources
 
 
 def ask(question: str, history: list[dict] | None = None) -> dict:
-    messages, sources = _build_messages(question, history)
+    intent, messages, sources = _build_messages(question, history)
     if messages is None:
         return {"answer": NO_DATA_RESPONSE, "sources": []}
     answer = chat_completion(messages)
@@ -203,7 +259,7 @@ def ask(question: str, history: list[dict] | None = None) -> dict:
 
 def ask_stream(question: str, history: list[dict] | None = None):
     """Generator that yields (event_type, data) tuples for SSE streaming."""
-    messages, sources = _build_messages(question, history)
+    intent, messages, sources = _build_messages(question, history)
 
     if messages is None:
         yield ("sources", json.dumps({"sources": []}))

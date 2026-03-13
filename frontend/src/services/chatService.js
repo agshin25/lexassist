@@ -62,6 +62,8 @@ export const chatService = {
       const decoder = new TextDecoder();
       let buffer = "";
 
+      let doneReceived = false;
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -87,6 +89,7 @@ export const chatService = {
                 const parsed = JSON.parse(data);
                 onMeta?.(parsed);
               } else if (eventType === "done") {
+                doneReceived = true;
                 const parsed = JSON.parse(data);
                 onDone?.(parsed);
               }
@@ -96,6 +99,11 @@ export const chatService = {
             eventType = null;
           }
         }
+      }
+
+      // If the stream ended without a "done" event, signal done anyway
+      if (!doneReceived) {
+        onDone?.({});
       }
     } catch (err) {
       onError?.(err);

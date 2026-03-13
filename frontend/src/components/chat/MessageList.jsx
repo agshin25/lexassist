@@ -47,10 +47,12 @@ export default function MessageList() {
   return (
     <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-8">
       <div className="mx-auto max-w-3xl space-y-6">
-        {messages.map((msg) => (
-          <ChatBubble key={msg.id} message={msg} />
-        ))}
-        {isTyping && <TypingIndicator />}
+        {messages.map((msg) =>
+          msg.role === 'assistant' && !msg.content ? null : (
+            <ChatBubble key={msg.id} message={msg} />
+          )
+        )}
+        {isTyping && !(messages.length > 0 && messages[messages.length - 1].role === 'assistant' && messages[messages.length - 1].content) && <TypingIndicator />}
         <div ref={bottomRef} />
       </div>
     </div>
