@@ -21,7 +21,8 @@
       "Bash(source venv/Scripts/activate && PYTHONIOENCODING=utf-8 python -c \"\nfrom app.rag import search\nresult = search\\('Bosanma prosesi nece heyata kecirilir?'\\)\nprint\\('Distances:', result['distances']\\)\nprint\\('Num matches:', len\\(result['matches']\\)\\)\nif result['matches']:\n    print\\('First match preview:', result['matches'][0]['text'][:200]\\)\n\")",
       "Bash(cd /c/Users/user/Documents/Projects/lex-assist/frontend && npm install react-markdown 2>&1 | tail -3)",
       "Bash(cd C:/Users/user/Documents/Projects/lex-assist/backend && pip install openai 2>&1 | tail -3)",
-      "Bash(cd C:/Users/user/Documents/Projects/lex-assist/backend && pip freeze | grep -i openai)"
+      "Bash(cd C:/Users/user/Documents/Projects/lex-assist/backend && pip freeze | grep -i openai)",
+      "Bash(cd C:/Users/user/Documents/Projects/lex-assist && python -c \"import ast; ast.parse\\(open\\('backend/app/rag.py'\\).read\\(\\)\\); print\\('rag.py OK'\\)\" && python -c \"import ast; ast.parse\\(open\\('backend/app/routers/chat.py'\\).read\\(\\)\\); print\\('chat.py OK'\\)\")"
     ]
   }
 }

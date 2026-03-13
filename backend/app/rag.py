@@ -165,7 +165,8 @@ def classify_intent(question: str) -> bool:
         return False
 
 
-def ask(question: str, history: list[dict] | None = None) -> dict:
+def _build_messages(question: str, history: list[dict] | None = None) -> tuple[list[dict], list[str]]:
+    """Classify intent, do RAG search if needed, return (messages, sources)."""
     is_legal = classify_intent(question)
 
     if not is_legal:
@@ -174,14 +175,13 @@ def ask(question: str, history: list[dict] | None = None) -> dict:
             for msg in history[-6:]:
                 messages.append({'role': msg['role'], 'content': msg['content']})
         messages.append({'role': 'user', 'content': question})
-        answer = chat_completion(messages)
-        return {"answer": answer, "sources": []}
+        return messages, []
 
     result = search(question)
     matches = result["matches"]
 
     if not matches:
-        return {"answer": NO_DATA_RESPONSE, "sources": []}
+        return None, []
 
     context = "\n\n".join([m["text"] for m in matches])
     messages = [{'role': 'system', 'content': LEGAL_SYSTEM_PROMPT}]
@@ -189,9 +189,42 @@ def ask(question: str, history: list[dict] | None = None) -> dict:
         for msg in history[-6:]:
             messages.append({'role': msg['role'], 'content': msg['content']})
     messages.append({'role': 'user', 'content': legal_prompt(question, context)})
-    answer = chat_completion(messages)
     sources = list(set([m["source"] for m in matches]))
-    return {
-        "answer": answer,
-        "sources": sources
-    }
+    return messages, sources
+
+
+def ask(question: str, history: list[dict] | None = None) -> dict:
+    messages, sources = _build_messages(question, history)
+    if messages is None:
+        return {"answer": NO_DATA_RESPONSE, "sources": []}
+    answer = chat_completion(messages)
+    return {"answer": answer, "sources": sources}
+
+
+def ask_stream(question: str, history: list[dict] | None = None):
+    """Generator that yields (event_type, data) tuples for SSE streaming."""
+    messages, sources = _build_messages(question, history)
+
+    if messages is None:
+        yield ("sources", json.dumps({"sources": []}))
+        yield ("token", NO_DATA_RESPONSE)
+        yield ("done", json.dumps({"full_text": NO_DATA_RESPONSE}))
+        return
+
+    yield ("sources", json.dumps({"sources": sources}))
+
+    stream = openai_client.chat.completions.create(
+        model=settings.openai_model,
+        messages=messages,
+        temperature=0.3,
+        stream=True,
+    )
+
+    full_text = ""
+    for chunk in stream:
+        delta = chunk.choices[0].delta
+        if delta.content:
+            full_text += delta.content
+            yield ("token", delta.content)
+
+    yield ("done", json.dumps({"full_text": full_text}))

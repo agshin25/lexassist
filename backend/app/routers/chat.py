@@ -1,9 +1,10 @@
-from fastapi import APIRouter, UploadFile, File, Depends
+from fastapi import APIRouter, UploadFile, File, Depends, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from app.rag import ask, ingest_pdf, delete_document, get_or_create_collection
+from app.rag import ask, ask_stream, ingest_pdf, delete_document, get_or_create_collection
 from app.config import settings
-from app.database import get_db
+from app.database import get_db, SessionLocal
 from app.models import Conversation, Message
 import os
 import shutil
@@ -79,6 +80,82 @@ def chat(request: ChatRequest, db: Session = Depends(get_db)):
         answer=result["answer"],
         sources=result["sources"],
         conversation_id=conv.id,
+    )
+
+
+@router.post("/chat/stream")
+def chat_stream(request: ChatRequest, db: Session = Depends(get_db)):
+    if request.conversation_id:
+        conv = db.query(Conversation).filter(Conversation.id == request.conversation_id).first()
+        if not conv:
+            conv = Conversation(title=request.message[:40])
+            db.add(conv)
+            db.commit()
+            db.refresh(conv)
+    else:
+        conv = Conversation(title=request.message[:40])
+        db.add(conv)
+        db.commit()
+        db.refresh(conv)
+
+    if conv.title == "Yeni söhbət":
+        conv.title = request.message[:40]
+        db.commit()
+
+    user_msg = Message(conversation_id=conv.id, role="user", content=request.message)
+    db.add(user_msg)
+    db.commit()
+
+    recent_messages = (
+        db.query(Message)
+        .filter(Message.conversation_id == conv.id)
+        .order_by(Message.created_at.asc())
+        .all()
+    )
+    history = [
+        {"role": msg.role, "content": msg.content}
+        for msg in recent_messages[:-1]
+    ]
+
+    conversation_id = conv.id
+
+    def event_generator():
+        yield f"event: meta\ndata: {json.dumps({'conversation_id': conversation_id})}\n\n"
+
+        full_text = ""
+        sources = []
+
+        for event_type, data in ask_stream(request.message, history=history):
+            if event_type == "sources":
+                sources = json.loads(data).get("sources", [])
+                yield f"event: sources\ndata: {data}\n\n"
+            elif event_type == "token":
+                full_text += data
+                yield f"event: token\ndata: {json.dumps({'token': data})}\n\n"
+            elif event_type == "done":
+                yield f"event: done\ndata: {data}\n\n"
+
+        db_session = SessionLocal()
+        try:
+            ai_msg = Message(
+                conversation_id=conversation_id,
+                role="assistant",
+                content=full_text,
+                sources=json.dumps(sources),
+            )
+            db_session.add(ai_msg)
+            db_session.commit()
+        finally:
+            db_session.close()
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 

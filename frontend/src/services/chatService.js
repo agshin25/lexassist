@@ -1,6 +1,5 @@
-import { apiRequest } from "./api";
+import { apiRequest, API_BASE_URL } from "./api";
 
-// Transform backend conversation to frontend format
 function formatConversation(conv) {
   return {
     id: conv.id,
@@ -12,7 +11,6 @@ function formatConversation(conv) {
   };
 }
 
-// Transform backend message to frontend format
 function formatMessage(msg) {
   return {
     id: msg.id,
@@ -26,7 +24,6 @@ function formatMessage(msg) {
 }
 
 export const chatService = {
-  // Send a message and get AI response
   async sendMessage(message, conversationId = null) {
     const data = await apiRequest("/api/chat", {
       method: "POST",
@@ -43,6 +40,66 @@ export const chatService = {
       ),
       conversationId: data.conversation_id,
     };
+  },
+
+  // Send a message with SSE streaming
+  async sendMessageStream(message, conversationId = null, { onToken, onSources, onMeta, onDone, onError }) {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/chat/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message,
+          conversation_id: conversationId,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop(); // keep incomplete line in buffer
+
+        let eventType = null;
+        for (const line of lines) {
+          if (line.startsWith("event: ")) {
+            eventType = line.slice(7).trim();
+          } else if (line.startsWith("data: ") && eventType) {
+            const data = line.slice(6);
+            try {
+              if (eventType === "token") {
+                const parsed = JSON.parse(data);
+                onToken?.(parsed.token);
+              } else if (eventType === "sources") {
+                const parsed = JSON.parse(data);
+                onSources?.(parsed.sources || []);
+              } else if (eventType === "meta") {
+                const parsed = JSON.parse(data);
+                onMeta?.(parsed);
+              } else if (eventType === "done") {
+                const parsed = JSON.parse(data);
+                onDone?.(parsed);
+              }
+            } catch (e) {
+              // ignore parse errors for partial data
+            }
+            eventType = null;
+          }
+        }
+      }
+    } catch (err) {
+      onError?.(err);
+    }
   },
 
   // Get all conversations (list, no messages)

@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useMemo, useCallback, useEffect } from 'react';
+import { createContext, useContext, useState, useRef, useMemo, useCallback, useEffect } from 'react';
 import { chatService } from '../services/chatService';
 
 const ChatContext = createContext();
@@ -100,6 +100,9 @@ export function ChatProvider({ children }) {
     setActiveConversationId(tempId);
   }, [conversations, activeConversationId]);
 
+  // Ref to track the streaming AI message's convId (may change from temp to real)
+  const streamConvIdRef = useRef(null);
+
   const sendMessage = useCallback(
     async (content) => {
       if (!content.trim()) return;
@@ -120,6 +123,8 @@ export function ChatProvider({ children }) {
         currentConvId = tempId;
       }
 
+      streamConvIdRef.current = currentConvId;
+
       const userMsg = {
         id: `msg-${Date.now()}`,
         role: 'user',
@@ -127,11 +132,20 @@ export function ChatProvider({ children }) {
         timestamp: new Date().toISOString(),
       };
 
-      // Immediately show user message in UI
+      const aiMsgId = `msg-${Date.now()}-ai`;
+
+      // Add user message + empty AI message placeholder
       setConversations((prev) =>
         prev.map((conv) => {
           if (conv.id !== currentConvId) return conv;
-          const updated = { ...conv, messages: [...(conv.messages || []), userMsg] };
+          const updated = {
+            ...conv,
+            messages: [
+              ...(conv.messages || []),
+              userMsg,
+              { id: aiMsgId, role: 'assistant', content: '', sources: [], timestamp: new Date().toISOString() },
+            ],
+          };
           if (!conv.messages || conv.messages.length === 0) {
             updated.title = content.trim().slice(0, 40) + (content.length > 40 ? '...' : '');
           }
@@ -141,57 +155,73 @@ export function ChatProvider({ children }) {
 
       setIsTyping(true);
 
-      try {
-        // Send null for conversation_id if it's a temp ID so backend creates a new one
-        const backendConvId = String(currentConvId).startsWith('temp-') ? null : currentConvId;
-        const response = await chatService.sendMessage(content, backendConvId);
+      const backendConvId = String(currentConvId).startsWith('temp-') ? null : currentConvId;
 
-        const aiMsg = {
-          id: `msg-${Date.now()}-ai`,
-          role: 'assistant',
-          content: response.answer,
-          sources: response.sources,
-          timestamp: new Date().toISOString(),
-        };
+      await chatService.sendMessageStream(content, backendConvId, {
+        onMeta: ({ conversation_id }) => {
+          const prevConvId = streamConvIdRef.current;
+          if (conversation_id !== prevConvId) {
+            streamConvIdRef.current = conversation_id;
+            setConversations((prev) =>
+              prev.map((conv) =>
+                conv.id === prevConvId ? { ...conv, id: conversation_id } : conv
+              )
+            );
+            setActiveConversationId(conversation_id);
+          }
+        },
 
-        // If backend created a new conversation, update the temp ID to real ID
-        if (response.conversationId !== currentConvId) {
+        onToken: (token) => {
           setConversations((prev) =>
-            prev.map((conv) =>
-              conv.id === currentConvId
-                ? { ...conv, id: response.conversationId, messages: [...(conv.messages || []), aiMsg] }
-                : conv
-            )
+            prev.map((conv) => {
+              if (conv.id !== streamConvIdRef.current) return conv;
+              return {
+                ...conv,
+                messages: conv.messages.map((msg) =>
+                  msg.id === aiMsgId ? { ...msg, content: msg.content + token } : msg
+                ),
+              };
+            })
           );
-          setActiveConversationId(response.conversationId);
-        } else {
+        },
+
+        onSources: (sources) => {
+          const formatted = sources.map((s) => (typeof s === 'string' ? { label: s } : s));
           setConversations((prev) =>
-            prev.map((conv) =>
-              conv.id === currentConvId
-                ? { ...conv, messages: [...(conv.messages || []), aiMsg] }
-                : conv
-            )
+            prev.map((conv) => {
+              if (conv.id !== streamConvIdRef.current) return conv;
+              return {
+                ...conv,
+                messages: conv.messages.map((msg) =>
+                  msg.id === aiMsgId ? { ...msg, sources: formatted } : msg
+                ),
+              };
+            })
           );
-        }
-      } catch (err) {
-        console.error('Failed to send message:', err);
-        const errorMsg = {
-          id: `msg-${Date.now()}-err`,
-          role: 'assistant',
-          content: 'Xəta baş verdi. Zəhmət olmasa yenidən cəhd edin.',
-          sources: [],
-          timestamp: new Date().toISOString(),
-        };
-        setConversations((prev) =>
-          prev.map((conv) =>
-            conv.id === currentConvId
-              ? { ...conv, messages: [...(conv.messages || []), errorMsg] }
-              : conv
-          )
-        );
-      } finally {
-        setIsTyping(false);
-      }
+        },
+
+        onDone: () => {
+          setIsTyping(false);
+        },
+
+        onError: (err) => {
+          console.error('Stream error:', err);
+          setConversations((prev) =>
+            prev.map((conv) => {
+              if (conv.id !== streamConvIdRef.current) return conv;
+              return {
+                ...conv,
+                messages: conv.messages.map((msg) =>
+                  msg.id === aiMsgId
+                    ? { ...msg, content: msg.content || 'Xəta baş verdi. Zəhmət olmasa yenidən cəhd edin.' }
+                    : msg
+                ),
+              };
+            })
+          );
+          setIsTyping(false);
+        },
+      });
     },
     [activeConversationId]
   );
