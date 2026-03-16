@@ -258,8 +258,9 @@ async def transcribe_audio(file: UploadFile = File(...)):
 
     transcription = client.audio.transcriptions.create(
         model="gpt-4o-transcribe",
-        file=(file.filename or "recording.webm", audio_bytes),
+        file=(file.filename or "recording.wav", audio_bytes),
         language="az",
+        temperature=0,
         prompt=STT_PROMPT,
     )
 

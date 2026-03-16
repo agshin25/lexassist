@@ -110,78 +110,139 @@ export default function ChatInput() {
     draw();
   };
 
+  const audioCtxRef = useRef(null);
+  const processorRef = useRef(null);
+  const pcmRef = useRef([]);
+
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true },
+      });
       streamRef.current = stream;
 
-      // Set up audio analyser for waveform
-      const audioCtx = new AudioContext();
+      // Set up audio context at 16kHz
+      const audioCtx = new AudioContext({ sampleRate: 16000 });
+      audioCtxRef.current = audioCtx;
       const source = audioCtx.createMediaStreamSource(stream);
+
+      // Analyser for waveform visualization
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = 2048;
       source.connect(analyser);
       analyserRef.current = analyser;
 
-      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-      mediaRecorderRef.current = mediaRecorder;
-      chunksRef.current = [];
-
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
+      // ScriptProcessor to capture raw PCM at 16kHz mono
+      const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+      pcmRef.current = [];
+      processor.onaudioprocess = (e) => {
+        const data = e.inputBuffer.getChannelData(0);
+        pcmRef.current.push(new Float32Array(data));
       };
+      source.connect(processor);
+      processor.connect(audioCtx.destination);
+      processorRef.current = processor;
 
-      mediaRecorder.start();
       setIsRecording(true);
     } catch (err) {
       console.error('Mic access denied:', err);
     }
   };
 
-  const stopAndTranscribe = async () => {
-    if (!mediaRecorderRef.current || mediaRecorderRef.current.state !== 'recording') return;
+  const buildWav = (sampleRate) => {
+    // Merge all PCM chunks
+    const totalLength = pcmRef.current.reduce((sum, chunk) => sum + chunk.length, 0);
+    const pcm = new Float32Array(totalLength);
+    let offset = 0;
+    for (const chunk of pcmRef.current) {
+      pcm.set(chunk, offset);
+      offset += chunk.length;
+    }
 
+    // Convert float32 to int16
+    const int16 = new Int16Array(pcm.length);
+    for (let i = 0; i < pcm.length; i++) {
+      const s = Math.max(-1, Math.min(1, pcm[i]));
+      int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+    }
+
+    // Build WAV file
+    const buffer = new ArrayBuffer(44 + int16.length * 2);
+    const view = new DataView(buffer);
+    const writeStr = (o, str) => { for (let i = 0; i < str.length; i++) view.setUint8(o + i, str.charCodeAt(i)); };
+
+    writeStr(0, 'RIFF');
+    view.setUint32(4, 36 + int16.length * 2, true);
+    writeStr(8, 'WAVE');
+    writeStr(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);           // PCM
+    view.setUint16(22, 1, true);           // mono
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);          // 16-bit
+    writeStr(36, 'data');
+    view.setUint32(40, int16.length * 2, true);
+
+    const int16Bytes = new Uint8Array(int16.buffer);
+    new Uint8Array(buffer).set(int16Bytes, 44);
+
+    return new Blob([buffer], { type: 'audio/wav' });
+  };
+
+  const stopAndTranscribe = async () => {
     // Stop waveform animation
     if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     historyRef.current = [];
 
-    return new Promise((resolve) => {
-      mediaRecorderRef.current.onstop = async () => {
-        streamRef.current?.getTracks().forEach((t) => t.stop());
+    // Disconnect processor and stop stream
+    if (processorRef.current) {
+      processorRef.current.disconnect();
+      processorRef.current = null;
+    }
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    const sampleRate = audioCtxRef.current?.sampleRate || 16000;
+    if (audioCtxRef.current) {
+      audioCtxRef.current.close();
+      audioCtxRef.current = null;
+    }
 
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
-        setIsRecording(false);
+    setIsRecording(false);
 
-        if (blob.size === 0) { resolve(); return; }
+    if (pcmRef.current.length === 0) return;
 
-        setIsTranscribing(true);
-        try {
-          const formData = new FormData();
-          formData.append('file', blob, 'recording.webm');
-          const result = await apiUpload('/api/transcribe', formData);
-          if (result.text) {
-            setText((prev) => (prev ? prev + ' ' + result.text : result.text));
-          }
-        } catch (err) {
-          console.error('Transcription failed:', err);
-        } finally {
-          setIsTranscribing(false);
-        }
-        resolve();
-      };
+    const wavBlob = buildWav(sampleRate);
+    pcmRef.current = [];
 
-      mediaRecorderRef.current.stop();
-    });
+    setIsTranscribing(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', wavBlob, 'recording.wav');
+      const result = await apiUpload('/api/transcribe', formData);
+      if (result.text) {
+        setText((prev) => (prev ? prev + ' ' + result.text : result.text));
+      }
+    } catch (err) {
+      console.error('Transcription failed:', err);
+    } finally {
+      setIsTranscribing(false);
+    }
   };
 
   const cancelRecording = () => {
     if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     historyRef.current = [];
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-      mediaRecorderRef.current.onstop = () => {};
-      mediaRecorderRef.current.stop();
+    if (processorRef.current) {
+      processorRef.current.disconnect();
+      processorRef.current = null;
     }
     streamRef.current?.getTracks().forEach((t) => t.stop());
+    if (audioCtxRef.current) {
+      audioCtxRef.current.close();
+      audioCtxRef.current = null;
+    }
+    pcmRef.current = [];
     setIsRecording(false);
   };
 

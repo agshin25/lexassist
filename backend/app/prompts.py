@@ -78,7 +78,9 @@ Nümunələr:
 # ── Speech-to-Text ──
 STT_PROMPT = """Bu audio Azərbaycan dilindədir. Transkripsiya yalnız Azərbaycan dilində olmalıdır.
 Sözləri düzgün Azərbaycan əlifbası ilə yazın (ə, ı, ö, ü, ş, ç, ğ).
-Hüquqi terminlər: nikah, boşanma, əmək müqaviləsi, mülkiyyət, aliment, vərəsəlik, cinayət, cəza, məhkəmə, vəkil, qanun, maddə, məcəllə, hüquq, vətəndaş."""
+İstifadəçi hüquqi sahə ilə bağlı sual verir. Gündəlik danışıq dilində ola bilər.
+Hüquqi terminlər: nikah, boşanma, əmək müqaviləsi, mülkiyyət, aliment, vərəsəlik, cinayət, cəza, məhkəmə, vəkil, qanun, maddə, məcəllə, hüquq, vətəndaş, ailə, övlad, əmlak, torpaq, icarə, şikayət, iddia, müqavilə, notarius, etibarnamə, sığorta, vergi, miras.
+Gündəlik ifadələr: evlənmək, ayrılmaq, işdən çıxmaq, ev almaq, uşaq, yaş, cərimə, oğurluq, döymək, şikayət etmək, məhkəməyə vermək, sənəd, icazə, qeydiyyat."""
 
 # ── No relevant data in documents ──
 NO_DATA_RESPONSE = "Bu barədə yüklənmiş sənədlərdə məlumat tapılmadı. Başqa hüquqi sualınız varsa, soruşa bilərsiniz."
