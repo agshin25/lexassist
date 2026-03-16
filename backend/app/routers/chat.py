@@ -256,7 +256,7 @@ async def transcribe_audio(file: UploadFile = File(...)):
         response = await client.post(
             f"{settings.whisper_url}/v1/audio/transcriptions",
             files={"file": (file.filename, await file.read(), file.content_type)},
-            data={"model": "Systran/faster-whisper-large-v3", "language": "az"},
+            data={"model": "Systran/faster-whisper-large-v3-turbo", "language": "az"},
         )
 
     if response.status_code != 200:
