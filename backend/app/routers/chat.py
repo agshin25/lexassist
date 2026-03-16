@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, Depends, Request, BackgroundTasks
+from fastapi import APIRouter, UploadFile, File, Depends, Request, BackgroundTasks, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -249,17 +249,16 @@ def remove_document(filename: str):
 
 @router.post("/transcribe")
 async def transcribe_audio(file: UploadFile = File(...)):
-    """Forward audio to Whisper GPU server and return transcribed text."""
-    import httpx
+    """Transcribe audio using OpenAI Whisper API."""
+    from openai import OpenAI
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.post(
-            f"{settings.whisper_url}/v1/audio/transcriptions",
-            files={"file": (file.filename, await file.read(), file.content_type)},
-            data={"model": "Systran/faster-whisper-large-v3-turbo", "language": "az"},
-        )
+    client = OpenAI(api_key=settings.openai_api_key)
+    audio_bytes = await file.read()
 
-    if response.status_code != 200:
-        raise HTTPException(status_code=502, detail="Transcription failed")
+    transcription = client.audio.transcriptions.create(
+        model="whisper-1",
+        file=(file.filename or "recording.webm", audio_bytes),
+        language="az",
+    )
 
-    return response.json()
+    return {"text": transcription.text}
