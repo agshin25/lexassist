@@ -12,7 +12,7 @@ export default function ChatBubble({ message }) {
   if (isUser) {
     return (
       <div className="flex justify-end animate-fade-in">
-        <div className="max-w-[70%] rounded-2xl rounded-br-sm bg-gradient-to-br from-gold-500/20 to-teal-500/10 border border-gold-500/20 px-4 py-3">
+        <div className="max-w-[85%] rounded-2xl rounded-br-sm bg-gradient-to-br from-gold-500/20 to-teal-500/10 border border-gold-500/20 px-4 py-3 sm:max-w-[70%]">
           <p className="text-sm leading-relaxed text-[var(--app-text)]">{message.content}</p>
           <p className="mt-1.5 text-right text-[10px] text-[var(--app-text-muted)]">
             {formatTime(message.timestamp)}
@@ -27,7 +27,7 @@ export default function ChatBubble({ message }) {
       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-teal-500/10 text-teal-500">
         <Bot size={16} />
       </div>
-      <div className="max-w-[80%]">
+      <div className="max-w-[90%] sm:max-w-[80%]">
         <div className="rounded-2xl rounded-bl-sm bg-[var(--app-surface)] border border-[var(--glass-border)] px-4 py-3">
           <div className="prose prose-sm prose-invert max-w-none text-sm leading-relaxed text-[var(--app-text)]">
             <ReactMarkdown>{message.content}</ReactMarkdown>

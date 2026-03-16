@@ -22,20 +22,20 @@ export default function ConversationTable({ conversations }) {
   return (
     <div className="flex flex-col h-full">
       {/* Filter Bar */}
-      <div className="flex items-center justify-between gap-4 rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] px-5 py-4 mb-4">
+      <div className="flex flex-col gap-3 rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] px-4 py-3 mb-4 sm:flex-row sm:items-center sm:justify-between sm:px-5 sm:py-4">
         <div className="flex items-center gap-2">
           <h2 className="text-base font-semibold text-[var(--app-text)]">All Conversations</h2>
           <span className="text-sm text-[var(--app-text-muted)]">({filtered.length})</span>
         </div>
         <div className="flex items-center gap-3">
-          <div className="relative">
+          <div className="relative flex-1 sm:flex-none">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--app-text-muted)]" />
             <input
               type="text"
               placeholder="Name, case number, keyword..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-64 rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-hover)] py-2 pl-9 pr-3 text-sm text-[var(--app-text)] placeholder-[var(--app-text-muted)] outline-none transition-colors focus:border-gold-500/30"
+              className="w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-hover)] py-2 pl-9 pr-3 text-sm text-[var(--app-text)] placeholder-[var(--app-text-muted)] outline-none transition-colors focus:border-gold-500/30 sm:w-64"
             />
           </div>
           <select
@@ -53,26 +53,30 @@ export default function ConversationTable({ conversations }) {
 
       {/* Table */}
       <div className="flex-1 overflow-hidden rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)]">
-        {/* Table Header */}
-        <div className="grid grid-cols-[auto_1fr_1fr_0.7fr_1fr_0.8fr_1fr_0.7fr_0.8fr] items-center gap-4 border-b border-[var(--app-border)] px-5 py-3">
-          {COLUMNS.map((col) => (
-            <span key={col} className="text-xs font-semibold uppercase tracking-wider text-[var(--app-text-muted)]">
-              {col}
-            </span>
-          ))}
-        </div>
-
-        {/* Table Body */}
-        <div className="overflow-y-auto" style={{ maxHeight: 'calc(100vh - 220px)' }}>
-          {filtered.length === 0 ? (
-            <div className="flex items-center justify-center py-16 text-sm text-[var(--app-text-muted)]">
-              No conversations found
+        <div className="overflow-x-auto h-full">
+          <div className="min-w-[800px]">
+            {/* Table Header */}
+            <div className="grid grid-cols-[auto_1fr_1fr_0.7fr_1fr_0.8fr_1fr_0.7fr_0.8fr] items-center gap-4 border-b border-[var(--app-border)] px-5 py-3">
+              {COLUMNS.map((col) => (
+                <span key={col} className="text-xs font-semibold uppercase tracking-wider text-[var(--app-text-muted)]">
+                  {col}
+                </span>
+              ))}
             </div>
-          ) : (
-            filtered.map((conv) => (
-              <ConversationRow key={conv.id} conversation={conv} />
-            ))
-          )}
+
+            {/* Table Body */}
+            <div className="overflow-y-auto" style={{ maxHeight: 'calc(100vh - 280px)' }}>
+              {filtered.length === 0 ? (
+                <div className="flex items-center justify-center py-16 text-sm text-[var(--app-text-muted)]">
+                  No conversations found
+                </div>
+              ) : (
+                filtered.map((conv) => (
+                  <ConversationRow key={conv.id} conversation={conv} />
+                ))
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>

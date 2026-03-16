@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, Depends, Request
+from fastapi import APIRouter, UploadFile, File, Depends, Request, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -9,6 +9,11 @@ from app.models import Conversation, Message
 import os
 import shutil
 import json
+import threading
+
+# Track processing status: filename -> {"status": "processing"/"ready"/"error", "chunks": 0}
+_upload_status = {}
+_upload_lock = threading.Lock()
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
@@ -159,7 +164,18 @@ def chat_stream(request: ChatRequest, db: Session = Depends(get_db)):
     )
 
 
-@router.post("/upload", response_model=IngestResponse)
+def _process_pdf(file_path: str, filename: str):
+    """Background worker — ingests PDF and updates status."""
+    try:
+        chunks_count = ingest_pdf(file_path)
+        with _upload_lock:
+            _upload_status[filename] = {"status": "ready", "chunks": chunks_count}
+    except Exception as e:
+        with _upload_lock:
+            _upload_status[filename] = {"status": "error", "message": str(e)}
+
+
+@router.post("/upload")
 def upload_pdf(file: UploadFile = File(...)):
     os.makedirs(settings.pdf_path, exist_ok=True)
     file_path = os.path.join(settings.pdf_path, file.filename)
@@ -167,13 +183,13 @@ def upload_pdf(file: UploadFile = File(...)):
     with open(file_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
-    chunks_count = ingest_pdf(file_path)
+    with _upload_lock:
+        _upload_status[file.filename] = {"status": "processing", "chunks": 0}
 
-    return IngestResponse(
-        filename=file.filename,
-        chunks=chunks_count,
-        message=f"{file.filename} processed successfully. {chunks_count} chunks created."
-    )
+    thread = threading.Thread(target=_process_pdf, args=(file_path, file.filename))
+    thread.start()
+
+    return {"filename": file.filename, "status": "processing", "message": "Sənəd emal olunur..."}
 
 
 @router.get("/documents")
@@ -196,11 +212,24 @@ def list_documents():
     for filename in os.listdir(pdf_dir):
         if filename.endswith(".pdf"):
             filepath = os.path.join(pdf_dir, filename)
+            chunks = chunk_counts.get(filename, 0)
+
+            with _upload_lock:
+                status_info = _upload_status.get(filename)
+
+            if status_info and status_info["status"] == "processing":
+                status = "processing"
+            elif status_info and status_info["status"] == "error":
+                status = "error"
+            else:
+                status = "ready" if chunks > 0 else "ready"
+
             files.append({
                 "filename": filename,
                 "size_mb": round(os.path.getsize(filepath) / 1024 / 1024, 2),
-                "chunks": chunk_counts.get(filename, 0),
+                "chunks": chunks,
                 "uploaded_at": os.path.getmtime(filepath),
+                "status": status,
             })
 
     return {"documents": files}
@@ -218,4 +247,19 @@ def remove_document(filename: str):
 
     return {"message": f"{filename} deleted", "chunks_removed": deleted_chunks}
 
+@router.post("/transcribe")
+async def transcribe_audio(file: UploadFile = File(...)):
+    """Forward audio to Whisper GPU server and return transcribed text."""
+    import httpx
 
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        response = await client.post(
+            f"{settings.whisper_url}/v1/audio/transcriptions",
+            files={"file": (file.filename, await file.read(), file.content_type)},
+            data={"model": "Systran/faster-whisper-large-v3", "language": "az"},
+        )
+
+    if response.status_code != 200:
+        raise HTTPException(status_code=502, detail="Transcription failed")
+
+    return response.json()

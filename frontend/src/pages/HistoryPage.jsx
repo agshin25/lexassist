@@ -1,6 +1,7 @@
 import { History, Search, Bell } from 'lucide-react';
 import ConversationTable from '../components/history/ConversationTable';
 import { CONVERSATIONS_DATA } from '../services/historyService';
+import MobileMenuButton from '../components/common/MobileMenuButton';
 
 export default function HistoryPage() {
   const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
@@ -8,13 +9,16 @@ export default function HistoryPage() {
   return (
     <div className="flex h-full flex-col">
       {/* Page Header */}
-      <header className="flex items-center justify-between border-b border-[var(--app-border)] bg-[var(--glass-bg)] px-6 py-3.5 backdrop-blur-md">
+      <header className="flex items-center justify-between border-b border-[var(--app-border)] bg-[var(--glass-bg)] px-4 py-3.5 backdrop-blur-md sm:px-6">
         <div className="flex items-center gap-3">
+          <div className="md:hidden">
+            <MobileMenuButton />
+          </div>
           <History size={20} className="text-gold-400" />
           <h1 className="text-lg font-semibold text-[var(--app-text)]">Conversation History</h1>
-          <span className="text-sm text-[var(--app-text-muted)]">{now}</span>
+          <span className="hidden text-sm text-[var(--app-text-muted)] sm:inline">{now}</span>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="hidden items-center gap-3 sm:flex">
           <div className="relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--app-text-muted)]" />
             <input
@@ -37,7 +41,7 @@ export default function HistoryPage() {
       </header>
 
       {/* Table Content */}
-      <div className="flex-1 overflow-hidden p-5">
+      <div className="flex-1 overflow-hidden p-3 sm:p-5">
         <ConversationTable conversations={CONVERSATIONS_DATA} />
       </div>
     </div>

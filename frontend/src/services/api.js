@@ -12,3 +12,16 @@ export async function apiRequest(endpoint, options = {}) {
 
   return response.json();
 }
+
+export async function apiUpload(endpoint, formData) {
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error(`API error: ${response.status}`);
+  }
+
+  return response.json();
+}

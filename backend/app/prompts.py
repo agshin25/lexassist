@@ -61,6 +61,20 @@ FORMAT:
 - Verilən kontekstdəki BÜTÜN əlaqəli məlumatı istifadə et — qısa cavab VERMƏ, ətraflı yaz
 - Kontekstdə çoxlu əlaqəli maddə varsa, hamısını qeyd et"""
 
+# ── Query Rewriting ──
+QUERY_REWRITE_PROMPT = """İstifadəçinin sualını qısa və aydın hüquqi suala çevir.
+
+QAYDALAR:
+- QISA yaz, maksimum 10 söz
+- Mənasını dəyişmə
+- YALNIZ sualı qaytar
+
+Nümunələr:
+"aile quran zaman qadin ucun yas nece olmalidir" → "Qadınlar üçün nikah yaşı neçədir?"
+"isden cixarilsam ne edim" → "İşdən azad edilmə zamanı işçi hüquqları nələrdir?"
+"birini doyse ne ceza var" → "Fiziki zərər vurmanın cəzası nədir?"
+"""
+
 # ── No relevant data in documents ──
 NO_DATA_RESPONSE = "Bu barədə yüklənmiş sənədlərdə məlumat tapılmadı. Başqa hüquqi sualınız varsa, soruşa bilərsiniz."
 

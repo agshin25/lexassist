@@ -1,30 +1,52 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Database, FileText, Layers } from 'lucide-react';
 import UploadZone from '../components/training/UploadZone';
 import DocumentCard from '../components/training/DocumentCard';
 import { trainingService } from '../services/trainingService';
+import MobileMenuButton from '../components/common/MobileMenuButton';
 
 export default function TrainingDataPage() {
   const [documents, setDocuments] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const pollRef = useRef(null);
 
   const loadData = async () => {
     try {
       const docs = await trainingService.getDocuments();
       setDocuments(docs);
+      return docs;
     } catch (err) {
       console.error('Failed to load training data:', err);
+      return [];
     } finally {
       setIsLoading(false);
     }
   };
 
-  useEffect(() => { loadData(); }, []);
+  // Start/stop polling based on whether any doc is processing
+  const updatePolling = (docs) => {
+    const hasProcessing = docs.some((d) => d.status === 'processing');
+    if (hasProcessing && !pollRef.current) {
+      pollRef.current = setInterval(async () => {
+        const updated = await loadData();
+        if (!updated.some((d) => d.status === 'processing')) {
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+        }
+      }, 5000);
+    }
+  };
+
+  useEffect(() => {
+    loadData().then(updatePolling);
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, []);
 
   const handleUpload = async (file) => {
     try {
       await trainingService.uploadDocument(file);
-      await loadData();
+      const docs = await loadData();
+      updatePolling(docs);
     } catch (err) {
       console.error('Upload failed:', err);
     }
@@ -44,25 +66,28 @@ export default function TrainingDataPage() {
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <header className="flex items-center justify-between border-b border-[var(--app-border)] bg-[var(--glass-bg)] px-6 py-3.5 backdrop-blur-md">
+      <header className="flex items-center justify-between border-b border-[var(--app-border)] bg-[var(--glass-bg)] px-4 py-3.5 backdrop-blur-md sm:px-6">
         <div className="flex items-center gap-3">
+          <div className="md:hidden">
+            <MobileMenuButton />
+          </div>
           <Database size={20} className="text-gold-400" />
           <h1 className="text-lg font-semibold text-[var(--app-text)]">Training Data</h1>
         </div>
         <div className="flex items-center gap-4 text-xs text-[var(--app-text-muted)]">
           <div className="flex items-center gap-1.5">
             <FileText size={14} />
-            <span>{documents.length} sənəd</span>
+            <span>{documents.length} <span className="hidden sm:inline">sənəd</span></span>
           </div>
           <div className="flex items-center gap-1.5">
             <Layers size={14} />
-            <span>{totalChunks} chunk</span>
+            <span>{totalChunks} <span className="hidden sm:inline">chunk</span></span>
           </div>
         </div>
       </header>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex-1 overflow-y-auto p-4 sm:p-6">
         <div className="mx-auto max-w-3xl space-y-6">
 
           {/* Upload */}

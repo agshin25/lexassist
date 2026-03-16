@@ -1,6 +1,6 @@
 import { NavLink as RouterNavLink } from 'react-router-dom';
 
-export default function NavLink({ to, icon: Icon, label, disabled, collapsed }) {
+export default function NavLink({ to, icon: Icon, label, disabled, collapsed, onNavigate }) {
   if (disabled) {
     return (
       <div className="group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-[var(--app-text-muted)] opacity-40 cursor-not-allowed">
@@ -16,6 +16,7 @@ export default function NavLink({ to, icon: Icon, label, disabled, collapsed }) 
   return (
     <RouterNavLink
       to={to}
+      onClick={onNavigate}
       className={({ isActive }) =>
         `group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
           isActive

@@ -4,7 +4,7 @@ import fitz
 from app.config import settings
 from app.prompts import (
     legal_prompt, LEGAL_SYSTEM_PROMPT, REDIRECTOR_SYSTEM_PROMPT,
-    INTENT_CLASSIFICATION_PROMPT, NO_DATA_RESPONSE,
+    INTENT_CLASSIFICATION_PROMPT, QUERY_REWRITE_PROMPT, NO_DATA_RESPONSE,
 )
 import os
 import json
@@ -95,27 +95,69 @@ def delete_document(filename: str):
 
 
 def ingest_pdf(pdf_path: str) -> int:
-    text = extract_text_from_pdf(pdf_path)
-    chunks = chunk_text(text)
+    """Synchronous ingestion — used as fallback."""
+    for event in ingest_pdf_stream(pdf_path):
+        pass
+    data = json.loads(event[1]) if event else {}
+    return data.get("chunks", 0)
 
-    if not chunks:
-        return 0
 
-    embeddings = embedding_model.encode(chunks)
-    collection = get_or_create_collection()
+EMBED_BATCH_SIZE = 8
+
+
+def ingest_pdf_stream(pdf_path: str):
+    """Generator that yields (event_type, json_data) tuples for SSE progress."""
     filename = os.path.basename(pdf_path)
 
-    ids = [f"{filename}_chunk_{i}" for i in range(len(chunks))]
-    metadatas = [{"source": filename, "chunk_index": i} for i in range(len(chunks))]
+    yield ("progress", json.dumps({"step": "extracting", "percent": 5, "filename": filename}))
+    text = extract_text_from_pdf(pdf_path)
+    if not text.strip():
+        yield ("error", json.dumps({"message": "PDF-dən mətn çıxarıla bilmədi. Skan edilmiş PDF ola bilər."}))
+        return
+
+    yield ("progress", json.dumps({"step": "chunking", "percent": 10, "filename": filename}))
+    chunks = chunk_text(text)
+    if not chunks:
+        yield ("error", json.dumps({"message": "Heç bir chunk yaradıla bilmədi."}))
+        return
+
+    total_chunks = len(chunks)
+    yield ("progress", json.dumps({"step": "embedding", "percent": 15, "filename": filename, "total_chunks": total_chunks}))
+
+    all_embeddings = []
+    for i in range(0, total_chunks, EMBED_BATCH_SIZE):
+        batch = chunks[i:i + EMBED_BATCH_SIZE]
+        batch_embeddings = embedding_model.encode(batch)
+        all_embeddings.extend(batch_embeddings.tolist())
+
+        done = min(i + EMBED_BATCH_SIZE, total_chunks)
+        percent = 15 + int((done / total_chunks) * 75)  # 15% to 90%
+        yield ("progress", json.dumps({
+            "step": "embedding",
+            "percent": percent,
+            "filename": filename,
+            "embedded": done,
+            "total_chunks": total_chunks,
+        }))
+
+    yield ("progress", json.dumps({"step": "storing", "percent": 92, "filename": filename}))
+    collection = get_or_create_collection()
+
+    ids = [f"{filename}_chunk_{i}" for i in range(total_chunks)]
+    metadatas = [{"source": filename, "chunk_index": i} for i in range(total_chunks)]
 
     collection.add(
         documents=chunks,
-        embeddings=embeddings.tolist(),
+        embeddings=all_embeddings,
         ids=ids,
-        metadatas=metadatas
+        metadatas=metadatas,
     )
 
-    return len(chunks)
+    yield ("done", json.dumps({
+        "filename": filename,
+        "chunks": total_chunks,
+        "percent": 100,
+    }))
 
 
 def search(query: str, n_results: int = 10) -> dict:
@@ -155,7 +197,7 @@ def chat_completion(messages: list[dict], temperature: float = 0.3, response_for
     return response.choices[0].message.content
 
 
-RELEVANCE_THRESHOLD = 1.2  # max L2 distance — lower = more relevant
+RELEVANCE_THRESHOLD = 1.2 
 
 
 def classify_intent(question: str) -> str:
@@ -173,6 +215,20 @@ def classify_intent(question: str) -> str:
         intent = 'out_of_scope'
     logger.info(f"Intent for '{question[:50]}': {intent}")
     return intent
+
+
+def rewrite_query(question: str) -> str:
+    """Rewrite informal/daily language into formal legal language for better search."""
+    rewritten = chat_completion(
+        messages=[
+            {'role': 'system', 'content': QUERY_REWRITE_PROMPT},
+            {'role': 'user', 'content': question},
+        ],
+        temperature=0,
+    )
+    rewritten = rewritten.strip().strip('"')
+    logger.info(f"Query rewrite: '{question[:50]}' → '{rewritten[:50]}'")
+    return rewritten
 
 
 def check_relevance(question: str, context: str) -> bool:
@@ -206,20 +262,18 @@ def _build_messages(question: str, history: list[dict] | None = None):
     Returns: (intent, messages, sources)
     """
 
-    # Step 1: Intent classification
     intent = classify_intent(question)
 
-    # Step 2: Non-legal intents → redirector prompt (natural, no legal info)
     if intent != 'legal_question':
         messages = _build_redirector_messages(question)
         return intent, messages, []
 
-    # Step 3: Legal question → RAG search
-    result = search(question)
+    search_query = rewrite_query(question)
+    print(search_query)
+    result = search(search_query)
     matches = result["matches"]
     distances = result["distances"]
 
-    # Step 4: Distance threshold
     if matches and distances:
         logger.info(f"RAG distances for '{question[:50]}': {distances}")
         filtered = [
@@ -229,17 +283,14 @@ def _build_messages(question: str, history: list[dict] | None = None):
         logger.info(f"RAG matches: {len(matches)} total, {len(filtered)} after threshold ({RELEVANCE_THRESHOLD})")
         matches = [m for m, d in filtered]
 
-    # No matches → static "no data" response
     if not matches:
         return intent, None, []
 
     context = "\n\n".join([m["text"] for m in matches])
 
-    # Step 5: Post-retrieval relevance check
-    if not check_relevance(question, context):
+    if not check_relevance(search_query, context):
         return intent, None, []
 
-    # Step 6: Context is relevant — answer strictly from it
     messages = [{'role': 'system', 'content': LEGAL_SYSTEM_PROMPT}]
     if history:
         for msg in history[-6:]:
