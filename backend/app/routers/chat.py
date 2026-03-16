@@ -256,7 +256,7 @@ async def transcribe_audio(file: UploadFile = File(...)):
     audio_bytes = await file.read()
 
     transcription = client.audio.transcriptions.create(
-        model="whisper-1",
+        model="gpt-4o-transcribe",
         file=(file.filename or "recording.webm", audio_bytes),
         language="az",
     )
