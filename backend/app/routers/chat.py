@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.rag import ask, ask_stream, ingest_pdf, delete_document, get_or_create_collection
 from app.config import settings
+from app.prompts import STT_PROMPT
 from app.database import get_db, SessionLocal
 from app.models import Conversation, Message
 import os
@@ -259,6 +260,7 @@ async def transcribe_audio(file: UploadFile = File(...)):
         model="gpt-4o-transcribe",
         file=(file.filename or "recording.webm", audio_bytes),
         language="az",
+        prompt=STT_PROMPT,
     )
 
     return {"text": transcription.text}

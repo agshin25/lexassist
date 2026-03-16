@@ -75,6 +75,11 @@ Nümunələr:
 "birini doyse ne ceza var" → "Fiziki zərər vurmanın cəzası nədir?"
 """
 
+# ── Speech-to-Text ──
+STT_PROMPT = """Bu audio Azərbaycan dilindədir. Transkripsiya yalnız Azərbaycan dilində olmalıdır.
+Sözləri düzgün Azərbaycan əlifbası ilə yazın (ə, ı, ö, ü, ş, ç, ğ).
+Hüquqi terminlər: nikah, boşanma, əmək müqaviləsi, mülkiyyət, aliment, vərəsəlik, cinayət, cəza, məhkəmə, vəkil, qanun, maddə, məcəllə, hüquq, vətəndaş."""
+
 # ── No relevant data in documents ──
 NO_DATA_RESPONSE = "Bu barədə yüklənmiş sənədlərdə məlumat tapılmadı. Başqa hüquqi sualınız varsa, soruşa bilərsiniz."
 
