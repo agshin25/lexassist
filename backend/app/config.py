@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     pdf_path: str = "./data/pdfs"
     database_url: str = "postgresql://postgres:postgres@localhost:5432/lexassist"
     whisper_url: str = "http://209.209.42.142:8010"
+    realtime_model: str = "gpt-realtime-1.5"
 
     class Config:
         env_file = ".env"

@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers.chat import router as chat_router
 from app.routers.conversations import router as conversations_router
+from app.routers.voice import router as voice_router
 from app.database import engine
 from app.models import Base
 
@@ -19,6 +20,7 @@ app.add_middleware(
 
 app.include_router(chat_router)
 app.include_router(conversations_router)
+app.include_router(voice_router)
 
 @app.get("/")
 def root():

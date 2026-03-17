@@ -2,12 +2,14 @@ import { useState, useRef, useEffect } from 'react';
 import { Plus, Mic, AudioLines, ArrowUp, X, Check } from 'lucide-react';
 import { useChat } from '../../hooks/useChat';
 import { apiUpload } from '../../services/api';
+import VoiceMode from '../voice/VoiceMode';
 
 export default function ChatInput() {
   const { sendMessage, createNewChat } = useChat();
   const [text, setText] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [voiceMode, setVoiceMode] = useState(false);
   const textareaRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
@@ -328,12 +330,18 @@ export default function ChatInput() {
             >
               <Mic size={20} />
             </button>
-            <button className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--app-text)] text-[var(--app-bg)] transition-colors">
+            <button
+              onClick={() => setVoiceMode(true)}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--app-text)] text-[var(--app-bg)] transition-colors hover:scale-105 active:scale-95"
+            >
               <AudioLines size={20} />
             </button>
           </>
         )}
       </div>
+
+      {/* Voice mode overlay */}
+      {voiceMode && <VoiceMode onClose={() => setVoiceMode(false)} />}
     </div>
   );
 }
