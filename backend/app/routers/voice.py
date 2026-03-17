@@ -129,6 +129,8 @@ async def voice_endpoint(ws: WebSocket):
 
     # Track whether AI is currently speaking
     ai_speaking = asyncio.Event()
+    speech_streak = 0  # consecutive speech chunks detected
+    SPEECH_STREAK_THRESHOLD = 3  # need 3+ consecutive speech chunks to interrupt
 
     try:
         async with websockets.connect(
@@ -157,10 +159,16 @@ async def voice_endpoint(ws: WebSocket):
                             speech_detected = await asyncio.to_thread(is_speech, audio_bytes)
 
                             if speech_detected:
-                                logger.info("Silero: speech detected during AI response — interrupting")
-                                await openai_ws.send(json.dumps({"type": "response.cancel"}))
-                                ai_speaking.clear()
-                                await openai_ws.send(data)
+                                nonlocal speech_streak
+                                speech_streak += 1
+                                if speech_streak >= SPEECH_STREAK_THRESHOLD:
+                                    logger.info("Silero: sustained speech detected — interrupting")
+                                    await openai_ws.send(json.dumps({"type": "response.cancel"}))
+                                    ai_speaking.clear()
+                                    speech_streak = 0
+                                    await openai_ws.send(data)
+                            else:
+                                speech_streak = 0
                         else:
                             await openai_ws.send(data)
 
