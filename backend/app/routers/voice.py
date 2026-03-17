@@ -2,6 +2,8 @@ import json
 import asyncio
 import base64
 import logging
+import numpy as np
+import torch
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 import websockets
 from app.config import settings
@@ -13,6 +15,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["voice"])
 
 OPENAI_REALTIME_URL = f"wss://api.openai.com/v1/realtime?model={settings.realtime_model}"
+
+# Load Silero VAD model once at startup
+silero_model, silero_utils = torch.hub.load(
+    repo_or_dir='snakers4/silero-vad', model='silero_vad', force_reload=False
+)
+(get_speech_timestamps, _, _, _, _) = silero_utils
 
 SEARCH_KB_TOOL = {
     "type": "function",
@@ -46,11 +54,30 @@ SESSION_CONFIG = {
         "turn_detection": {
             "type": "semantic_vad",
             "eagerness": "low",
-            "interrupt_response": True,
+            "interrupt_response": False,
             "create_response": True,
         },
     },
 }
+
+
+def is_speech(audio_bytes: bytes) -> bool:
+    """Check if audio chunk contains human speech using Silero VAD."""
+    try:
+        int16 = np.frombuffer(audio_bytes, dtype=np.int16)
+        float32 = int16.astype(np.float32) / 32768.0
+        tensor = torch.from_numpy(float32)
+
+        # Silero expects 16kHz, our audio is 24kHz — resample
+        # Simple downsample: take every 1.5th sample
+        target_len = int(len(tensor) * 16000 / 24000)
+        indices = torch.linspace(0, len(tensor) - 1, target_len).long()
+        resampled = tensor[indices]
+
+        confidence = silero_model(resampled, 16000).item()
+        return confidence > 0.5
+    except Exception:
+        return False
 
 
 def handle_function_call(name: str, arguments: str) -> str:
@@ -100,6 +127,9 @@ async def voice_endpoint(ws: WebSocket):
         "OpenAI-Beta": "realtime=v1",
     }
 
+    # Track whether AI is currently speaking
+    ai_speaking = asyncio.Event()
+
     try:
         async with websockets.connect(
             OPENAI_REALTIME_URL,
@@ -113,11 +143,27 @@ async def voice_endpoint(ws: WebSocket):
             await asyncio.wait_for(openai_ws.send(json.dumps(SESSION_CONFIG)), timeout=5)
 
             async def forward_to_openai():
-                """Frontend → OpenAI"""
+                """Frontend → OpenAI (with Silero VAD gating during AI speech)"""
                 try:
                     while True:
                         data = await ws.receive_text()
-                        await openai_ws.send(data)
+                        event = json.loads(data)
+
+                        # If this is audio and AI is speaking, check with Silero first
+                        if event.get("type") == "input_audio_buffer.append" and ai_speaking.is_set():
+                            audio_b64 = event.get("audio", "")
+                            audio_bytes = base64.b64decode(audio_b64)
+
+                            speech_detected = await asyncio.to_thread(is_speech, audio_bytes)
+
+                            if speech_detected:
+                                logger.info("Silero: speech detected during AI response — interrupting")
+                                await openai_ws.send(json.dumps({"type": "response.cancel"}))
+                                ai_speaking.clear()
+                                await openai_ws.send(data)
+                        else:
+                            await openai_ws.send(data)
+
                 except WebSocketDisconnect:
                     pass
 
@@ -132,6 +178,12 @@ async def voice_endpoint(ws: WebSocket):
                         event = json.loads(message)
                         event_type = event.get("type", "")
 
+                        # Track AI speaking state
+                        if event_type == "response.audio.delta":
+                            ai_speaking.set()
+                        elif event_type in ("response.audio.done", "response.done"):
+                            ai_speaking.clear()
+
                         if event_type == "response.function_call_arguments.delta":
                             function_call_args += event.get("delta", "")
                             continue
@@ -144,7 +196,6 @@ async def voice_endpoint(ws: WebSocket):
                             result = await asyncio.to_thread(
                                 handle_function_call, function_call_name, function_call_args
                             )
-                            print(result)
 
                             await openai_ws.send(json.dumps({
                                 "type": "conversation.item.create",

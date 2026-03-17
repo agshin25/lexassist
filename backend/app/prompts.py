@@ -173,6 +173,5 @@ QAYDALAR:
 5. Giriş cümləsi YAZMA, birbaşa cavaba başla.
 6. Sadə Azərbaycan dilində izah et.
 7. HEÇVAXT öz bilik bazandan məlumat əlavə etmə — bu kəsin qadağandır.
-8. Cavabın SONUNDA yeni sətrdə YALNIZ istifadə etdiyin mənbələri yaz: SOURCES: [fayl1.pdf, fayl2.pdf]. Əgər bir fayldan heç nə istifadə etməmisənsə, onu YAZMA.
 
 CAVAB:"""

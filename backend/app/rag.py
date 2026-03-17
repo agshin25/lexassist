@@ -321,26 +321,12 @@ def _build_messages(question: str, history: list[dict] | None = None):
     return intent, messages, all_sources
 
 
-def _parse_sources(text: str, fallback_sources: list[str]) -> tuple[str, list[str]]:
-    """Extract SOURCES: line from GPT response. Returns (clean_text, sources)."""
-    lines = text.strip().split("\n")
-    for i in range(len(lines) - 1, -1, -1):
-        line = lines[i].strip()
-        if line.upper().startswith("SOURCES:"):
-            source_text = line.split(":", 1)[1].strip().strip("[]")
-            sources = [s.strip() for s in source_text.split(",") if s.strip()]
-            clean_text = "\n".join(lines[:i]).strip()
-            return clean_text, sources
-    return text, fallback_sources
-
-
 def ask(question: str, history: list[dict] | None = None) -> dict:
     intent, messages, sources = _build_messages(question, history)
     if messages is None:
         return {"answer": NO_DATA_RESPONSE, "sources": []}
     answer = chat_completion(messages)
-    answer, parsed_sources = _parse_sources(answer, sources)
-    return {"answer": answer, "sources": parsed_sources}
+    return {"answer": answer, "sources": sources}
 
 
 def ask_stream(question: str, history: list[dict] | None = None):
@@ -353,7 +339,8 @@ def ask_stream(question: str, history: list[dict] | None = None):
         yield ("done", json.dumps({"full_text": NO_DATA_RESPONSE}))
         return
 
-    # Don't send sources yet — wait for GPT to tell us which ones it used
+    yield ("sources", json.dumps({"sources": all_sources}))
+
     stream = openai_client.chat.completions.create(
         model=settings.openai_model,
         messages=messages,
@@ -362,37 +349,10 @@ def ask_stream(question: str, history: list[dict] | None = None):
     )
 
     full_text = ""
-    buffer = ""
     for chunk in stream:
         delta = chunk.choices[0].delta
         if delta.content:
             full_text += delta.content
-            buffer += delta.content
+            yield ("token", delta.content)
 
-            # Check if buffer might contain start of SOURCES line
-            # Hold back content once we see a newline near the end
-            if "\nSOURCES:" in buffer:
-                # SOURCES line started — flush everything before it
-                before = buffer.split("\nSOURCES:")[0]
-                if before:
-                    yield ("token", before)
-                buffer = ""
-            elif "SOURCES:" in buffer and buffer.strip().startswith("SOURCES:"):
-                # Buffer only has SOURCES line — don't flush
-                buffer = ""
-            elif "\n" in buffer and any(buffer.rstrip().endswith(c) for c in "SOURCES"[:len(buffer.split("\n")[-1])]):
-                # Might be building up to SOURCES — hold buffer
-                pass
-            else:
-                yield ("token", buffer)
-                buffer = ""
-
-    # Flush remaining buffer (except SOURCES line)
-    if buffer and "SOURCES:" not in buffer:
-        yield ("token", buffer)
-
-    # Parse sources from GPT response
-    clean_text, parsed_sources = _parse_sources(full_text, all_sources)
-
-    yield ("sources", json.dumps({"sources": parsed_sources}))
-    yield ("done", json.dumps({"full_text": clean_text}))
+    yield ("done", json.dumps({"full_text": full_text}))
