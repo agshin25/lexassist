@@ -277,35 +277,61 @@ def _build_messages(question: str, history: list[dict] | None = None):
         return intent, messages, []
 
     search_query = rewrite_query(question)
-    print(search_query)
+    print(f"[DEBUG] Original: {question}")
+    print(f"[DEBUG] Rewritten: {search_query}")
+
     result = search(search_query)
     matches = result["matches"]
     distances = result["distances"]
 
     if matches and distances:
-        logger.info(f"RAG distances for '{question[:50]}': {distances}")
+        print(f"[DEBUG] Top 3 distances: {distances[:3]}")
         filtered = [
             (m, d) for m, d in zip(matches, distances)
             if d <= RELEVANCE_THRESHOLD
         ]
-        logger.info(f"RAG matches: {len(matches)} total, {len(filtered)} after threshold ({RELEVANCE_THRESHOLD})")
+        print(f"[DEBUG] Matches: {len(matches)} total, {len(filtered)} after threshold ({RELEVANCE_THRESHOLD})")
         matches = [m for m, d in filtered]
 
     if not matches:
+        print(f"[DEBUG] No matches after filtering — returning NO_DATA")
         return intent, None, []
 
-    context = "\n\n".join([m["text"] for m in matches])
+    # Build context with source labels so GPT knows which text is from which file
+    context = "\n\n".join([f"[{m['source']}]:\n{m['text']}" for m in matches])
 
-    if not check_relevance(search_query, context):
-        return intent, None, []
+    # Strong match (< 0.6) → trust embedding, skip relevance check
+    # Weak match (0.6 - 1.2) → run LLM relevance check as safety net
+    best_distance = min(distances) if distances else 999
+    print(f"[DEBUG] Best distance: {best_distance}")
+    if best_distance >= 0.6:
+        relevance = check_relevance(search_query, context)
+        print(f"[DEBUG] Relevance check for weak match: {relevance}")
+        if not relevance:
+            return intent, None, []
 
     messages = [{'role': 'system', 'content': LEGAL_SYSTEM_PROMPT}]
     if history:
         for msg in history[-6:]:
             messages.append({'role': msg['role'], 'content': msg['content']})
     messages.append({'role': 'user', 'content': legal_prompt(question, context)})
-    sources = list(set([m["source"] for m in matches]))
-    return intent, messages, sources
+
+    # All possible sources — GPT will filter in its response
+    all_sources = list(set([m["source"] for m in matches]))
+    return intent, messages, all_sources
+
+
+def _parse_sources(text: str, fallback_sources: list[str]) -> tuple[str, list[str]]:
+    """Extract SOURCES: line from GPT response. Returns (clean_text, sources)."""
+    lines = text.strip().split("\n")
+    for i in range(len(lines) - 1, -1, -1):
+        line = lines[i].strip()
+        if line.upper().startswith("SOURCES:"):
+            source_text = line.split(":", 1)[1].strip().strip("[]")
+            sources = [s.strip() for s in source_text.split(",") if s.strip()]
+            clean_text = "\n".join(lines[:i]).strip()
+            return clean_text, sources
+    return text, fallback_sources
 
 
 def ask(question: str, history: list[dict] | None = None) -> dict:
@@ -313,12 +339,13 @@ def ask(question: str, history: list[dict] | None = None) -> dict:
     if messages is None:
         return {"answer": NO_DATA_RESPONSE, "sources": []}
     answer = chat_completion(messages)
-    return {"answer": answer, "sources": sources}
+    answer, parsed_sources = _parse_sources(answer, sources)
+    return {"answer": answer, "sources": parsed_sources}
 
 
 def ask_stream(question: str, history: list[dict] | None = None):
     """Generator that yields (event_type, data) tuples for SSE streaming."""
-    intent, messages, sources = _build_messages(question, history)
+    intent, messages, all_sources = _build_messages(question, history)
 
     if messages is None:
         yield ("sources", json.dumps({"sources": []}))
@@ -326,8 +353,7 @@ def ask_stream(question: str, history: list[dict] | None = None):
         yield ("done", json.dumps({"full_text": NO_DATA_RESPONSE}))
         return
 
-    yield ("sources", json.dumps({"sources": sources}))
-
+    # Don't send sources yet — wait for GPT to tell us which ones it used
     stream = openai_client.chat.completions.create(
         model=settings.openai_model,
         messages=messages,
@@ -336,10 +362,37 @@ def ask_stream(question: str, history: list[dict] | None = None):
     )
 
     full_text = ""
+    buffer = ""
     for chunk in stream:
         delta = chunk.choices[0].delta
         if delta.content:
             full_text += delta.content
-            yield ("token", delta.content)
+            buffer += delta.content
 
-    yield ("done", json.dumps({"full_text": full_text}))
+            # Check if buffer might contain start of SOURCES line
+            # Hold back content once we see a newline near the end
+            if "\nSOURCES:" in buffer:
+                # SOURCES line started — flush everything before it
+                before = buffer.split("\nSOURCES:")[0]
+                if before:
+                    yield ("token", before)
+                buffer = ""
+            elif "SOURCES:" in buffer and buffer.strip().startswith("SOURCES:"):
+                # Buffer only has SOURCES line — don't flush
+                buffer = ""
+            elif "\n" in buffer and any(buffer.rstrip().endswith(c) for c in "SOURCES"[:len(buffer.split("\n")[-1])]):
+                # Might be building up to SOURCES — hold buffer
+                pass
+            else:
+                yield ("token", buffer)
+                buffer = ""
+
+    # Flush remaining buffer (except SOURCES line)
+    if buffer and "SOURCES:" not in buffer:
+        yield ("token", buffer)
+
+    # Parse sources from GPT response
+    clean_text, parsed_sources = _parse_sources(full_text, all_sources)
+
+    yield ("sources", json.dumps({"sources": parsed_sources}))
+    yield ("done", json.dumps({"full_text": clean_text}))

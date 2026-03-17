@@ -139,6 +139,8 @@ def chat_stream(request: ChatRequest, db: Session = Depends(get_db)):
                 full_text += data
                 yield f"event: token\ndata: {json.dumps({'token': data})}\n\n"
             elif event_type == "done":
+                done_data = json.loads(data)
+                full_text = done_data.get("full_text", full_text)
                 yield f"event: done\ndata: {data}\n\n"
 
         db_session = SessionLocal()

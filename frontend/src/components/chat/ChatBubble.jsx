@@ -30,7 +30,7 @@ export default function ChatBubble({ message }) {
       <div className="max-w-[90%] sm:max-w-[80%]">
         <div className="rounded-2xl rounded-bl-sm bg-[var(--app-surface)] border border-[var(--glass-border)] px-4 py-3">
           <div className="prose prose-sm prose-invert max-w-none text-sm leading-relaxed text-[var(--app-text)]">
-            <ReactMarkdown>{message.content}</ReactMarkdown>
+            <ReactMarkdown>{message.content?.replace(/\n?SOURCES:\s*\[.*?\]$/s, '').trim()}</ReactMarkdown>
           </div>
           <p className="mt-1.5 text-[10px] text-[var(--app-text-muted)]">
             {formatTime(message.timestamp)}
