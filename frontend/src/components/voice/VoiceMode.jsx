@@ -11,6 +11,7 @@ export default function VoiceMode({ onClose }) {
   const [audioLevel, setAudioLevel] = useState(0);
 
   const wsRef = useRef(null);
+  const statusRef = useRef('connecting');
   const micCtxRef = useRef(null);
   const playCtxRef = useRef(null);
   const streamRef = useRef(null);
@@ -65,18 +66,20 @@ export default function VoiceMode({ onClose }) {
     switch (type) {
       case 'session.created':
       case 'session.updated':
+        statusRef.current = 'listening';
         setStatus('listening');
         break;
 
       case 'input_audio_buffer.speech_started':
+        statusRef.current = 'listening';
         setStatus('listening');
         setUserTranscript('');
         setAiTranscript('');
-        // Reset play time so new response doesn't queue behind old
         nextPlayTimeRef.current = 0;
         break;
 
       case 'input_audio_buffer.speech_stopped':
+        statusRef.current = 'thinking';
         setStatus('thinking');
         break;
 
@@ -85,12 +88,16 @@ export default function VoiceMode({ onClose }) {
         break;
 
       case 'response.audio.delta':
+        statusRef.current = 'speaking';
         setStatus('speaking');
         if (data.delta) playAudioChunk(data.delta);
         break;
 
       case 'response.audio.done':
-        setTimeout(() => setStatus('listening'), 500);
+        setTimeout(() => {
+          statusRef.current = 'listening';
+          setStatus('listening');
+        }, 500);
         break;
 
       case 'response.audio_transcript.delta':
@@ -177,7 +184,7 @@ export default function VoiceMode({ onClose }) {
         if (!cancelled) onClose();
       };
 
-      // Send audio chunks as PCM16 base64
+      // Send all audio — OpenAI's VAD handles speech detection and interruption
       processor.onaudioprocess = (e) => {
         if (ws.readyState !== WebSocket.OPEN) return;
 

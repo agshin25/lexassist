@@ -44,10 +44,10 @@ SESSION_CONFIG = {
             "language": "az",
         },
         "turn_detection": {
-            "type": "server_vad",
-            "threshold": 0.5,
-            "prefix_padding_ms": 300,
-            "silence_duration_ms": 700,
+            "type": "semantic_vad",
+            "eagerness": "low",
+            "interrupt_response": True,
+            "create_response": True,
         },
     },
 }
@@ -104,9 +104,13 @@ async def voice_endpoint(ws: WebSocket):
         async with websockets.connect(
             OPENAI_REALTIME_URL,
             additional_headers=headers,
+            open_timeout=10,
+            close_timeout=5,
+            ping_interval=20,
+            ping_timeout=10,
         ) as openai_ws:
 
-            await openai_ws.send(json.dumps(SESSION_CONFIG))
+            await asyncio.wait_for(openai_ws.send(json.dumps(SESSION_CONFIG)), timeout=5)
 
             async def forward_to_openai():
                 """Frontend → OpenAI"""
@@ -140,6 +144,7 @@ async def voice_endpoint(ws: WebSocket):
                             result = await asyncio.to_thread(
                                 handle_function_call, function_call_name, function_call_args
                             )
+                            print(result)
 
                             await openai_ws.send(json.dumps({
                                 "type": "conversation.item.create",
@@ -164,11 +169,20 @@ async def voice_endpoint(ws: WebSocket):
                 except websockets.exceptions.ConnectionClosed:
                     pass
 
-            await asyncio.gather(
-                forward_to_openai(),
-                forward_to_frontend(),
-            )
+            tasks = [
+                asyncio.create_task(forward_to_openai()),
+                asyncio.create_task(forward_to_frontend()),
+            ]
+            try:
+                done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+                for task in pending:
+                    task.cancel()
+            except Exception:
+                for task in tasks:
+                    task.cancel()
 
+    except asyncio.TimeoutError:
+        logger.error("Voice WebSocket: OpenAI connection timed out")
     except Exception as e:
         logger.error(f"Voice WebSocket error: {e}")
     finally:
