@@ -71,11 +71,17 @@ export default function VoiceMode({ onClose }) {
         break;
 
       case 'input_audio_buffer.speech_started':
+        // User interrupted — stop all audio playback immediately
+        if (playCtxRef.current) {
+          playCtxRef.current.close();
+          playCtxRef.current = new AudioContext();
+          playCtxRef.current.resume();
+        }
+        nextPlayTimeRef.current = 0;
         statusRef.current = 'listening';
         setStatus('listening');
         setUserTranscript('');
         setAiTranscript('');
-        nextPlayTimeRef.current = 0;
         break;
 
       case 'input_audio_buffer.speech_stopped':

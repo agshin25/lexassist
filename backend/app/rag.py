@@ -4,7 +4,8 @@ import fitz
 from app.config import settings
 from app.prompts import (
     legal_prompt, LEGAL_SYSTEM_PROMPT, REDIRECTOR_SYSTEM_PROMPT,
-    INTENT_CLASSIFICATION_PROMPT, QUERY_REWRITE_PROMPT, NO_DATA_RESPONSE,
+    CLARIFICATION_SYSTEM_PROMPT, INTENT_CLASSIFICATION_PROMPT,
+    QUERY_REWRITE_PROMPT, NO_DATA_RESPONSE,
 )
 import os
 import json
@@ -210,7 +211,7 @@ def classify_intent(question: str) -> str:
         temperature=0,
     )
     intent = content.strip().lower().replace('"', '').replace("'", '')
-    valid = {'legal_question', 'greeting', 'smalltalk', 'out_of_scope'}
+    valid = {'legal_question', 'clarification_needed', 'greeting', 'smalltalk', 'out_of_scope'}
     if intent not in valid:
         intent = 'out_of_scope'
     logger.info(f"Intent for '{question[:50]}': {intent}")
@@ -263,6 +264,13 @@ def _build_messages(question: str, history: list[dict] | None = None):
     """
 
     intent = classify_intent(question)
+
+    if intent == 'clarification_needed':
+        messages = [
+            {'role': 'system', 'content': CLARIFICATION_SYSTEM_PROMPT},
+            {'role': 'user', 'content': question},
+        ]
+        return intent, messages, []
 
     if intent != 'legal_question':
         messages = _build_redirector_messages(question)
